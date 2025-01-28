@@ -1,64 +1,81 @@
-from typing import Union
 from fastapi import FastAPI
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
-from helpers import TextClassificationModel, DownloadFromGoogleDrive
+import torch
 
 import re
 import os
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-load_dotenv(os.path.join(BASE_DIR, "env/.env"))
+from helpers import ONNXClassificationModel, TransformerClassificationModel, DownloadFromGoogleDrive
+
+project_root_dir = os.path.dirname(os.path.abspath(__file__))
+
+load_dotenv(os.path.join(project_root_dir, "env", ".env"))
+
+if torch.cuda.is_available():
+    comment_model = TransformerClassificationModel(model_type="comment")
+    nickname_model = TransformerClassificationModel(model_type="nickname")
+else:
+    comment_model = ONNXClassificationModel(model_type="comment")
+    nickname_model = ONNXClassificationModel(model_type="nickname")
+
+downloader = DownloadFromGoogleDrive(project_root_dir=project_root_dir,
+                                     model_folder_id=os.getenv('MODEL_ROOT_FOLDER_ID'))
 
 app = FastAPI()
 
-comment_model = TextClassificationModel(BASE_DIR, "comment")
-nickname_model = TextClassificationModel(BASE_DIR, "nickname")
-downloader = DownloadFromGoogleDrive(BASE_DIR)
-
-@app.get("/")
-def root():
-    return {"hello": "world"}
-
-class EvalData(BaseModel):
-    id: str
+class PredictRequest(BaseModel):
     nickname: str
     comment: str
 
-class EvalDataResponse(BaseModel):
-    id: str
-    result: list
+async def startup():
+    nickname_model.load()
+    comment_model.load()
 
-def discard_at_char(nickname: str) -> str:
-    return nickname[1:].replace("-", "_")
+async def shutdown():
+    nickname_model.unload()
+    comment_model.unload()
 
-def nomalize_comment(comment: str) -> str:
-    comment = re.sub(r'[\r\n,]+', ' ', comment)
-    comment = re.sub(r'[^가-힣a-zA-Z0-9~!@#$%^&*()_+\-=\[\]{}:;"\'<>,.?/\s]', '', comment)
-    comment = re.sub(r'(\.\.\.)\.+', '...', comment)
-    comment = re.sub(r'(ㅋㅋㅋ)ㅋ+', 'ㅋㅋㅋ', comment)
-    comment = re.sub(r'(ㅠㅠㅠ)ㅠ+', 'ㅠㅠㅠ', comment)
-    comment = re.sub(r'(ㅜㅜㅜ)ㅜ+', 'ㅜㅜㅜ', comment)
-    comment = re.sub(r'(ㄱㄱㄱ)ㄱ+', 'ㄱㄱㄱ', comment)
-    comment = re.sub(r'(\?\?\?)\?+', '???', comment)
-    comment = re.sub(r'\b(\d{1,3}):(\d{1,2}):(\d{1,2}):(\d{1,2})\b|\b(\d{1,3}):(\d{1,2}):(\d{1,2})\b|\b(\d{1,3}):(\d{1,2})\b', '', comment)
+app.add_event_handler("startup", startup)
+app.add_event_handler("shutdown", shutdown)
 
-    return comment
 
-@app.post("/eval")
-def eval_comment_and_nickname(body: EvalData):
-    comment: str = nomalize_comment(body.comment)
-    nickname: str = discard_at_char(body.nickname)
-    result = []
-    result.append(comment_model.eval(comment))
-    result.append(nickname_model.eval(nickname))
-    # result = list(filter(lambda x: x != "정상", result))
+@app.post("/predict")
+def predict(data: PredictRequest):
+    try:
+        # 요청에서 텍스트 데이터 가져오기
+        comment = data.comment
+        nickname = data.nickname
+        nickname = re.sub(r'[-._]', ' ', nickname)
+        
+        # 예측 수행
+        comment_output = comment_model.predict(comment)
+        nickname_output = nickname_model.predict(nickname)
+        
+        # 결과 반환
+        return {
+            'status': 'success',
+            'nickname': nickname_output,
+            'comment': comment_output
+        }
+    
+    except Exception as e:
+        return {
+            'status': 'error',
+            'message': str(e)
+        }
+    
+@app.patch("/update")
+def update_dataset():
+    try:
+        None
+    except Exception as e:
+        return {
+            'status': 'error',
+            'message': str(e)
+        }
 
-    return EvalDataResponse(id=body.id, result=result)
-
-@app.patch("/")
-def update_model():
-    downloader.download_models()
-    comment_model.reload()
-    nickname_model.reload()
+    
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)

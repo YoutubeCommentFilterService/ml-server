@@ -4,100 +4,105 @@ from google.oauth2 import service_account
 
 from dotenv import load_dotenv
 
+import torch
+
 import os
 import json
 import io
+from tqdm import tqdm
 
 '''
 https://github.com/hansheng0512/google-drive-and-python
 이곳의 download.py 메서드를 사용
+
+https://developers.google.com/drive/api/quickstart/python?hl=ko
+공식 레퍼런스
 '''
-class DownloadFromGoogleDrive:
-    def __init__(self, root_dir):
-        self.__ROOT_DIR = root_dir
-        self.__MODEL_DIR = os.path.join(self.__ROOT_DIR, 'model')
 
-        load_dotenv(dotenv_path=os.path.join(self.__ROOT_DIR, 'env', '.env'))
-        self.__DATASET_DRIVE_URL = os.getenv("DATASET_BASE_URL")
-
-        with open(os.path.join(self.__ROOT_DIR, 'env/ml-server-key.json'), 'rb') as token:
+class DownloadFromGoogleDrive():
+    def __init__(self, project_root_dir, model_folder_id, test_mode=False):
+        with open(os.path.join(project_root_dir, 'env', 'ml-server-key.json'), 'rb') as token:
             credential_info = json.load(token)
-
         credentials = service_account.Credentials.from_service_account_info(credential_info)
-        self.__service = build("drive", "v3", credentials = credentials)
+        self._service = build('drive', 'v3', credentials=credentials)
 
-        self.__model_folder_ids = {
-            "comment": os.getenv("COMMENT_MODEL_BASE_URL"),
-            "nickname": os.getenv("NICKNAME_MODEL_BASE_URL")
-        }
+        self._do_not_download = ['dataset-backup', 'comment_onnx', 'nickname_onnx']
+        if not test_mode:
+            if torch.cuda.is_available():
+                self._do_not_download.extend(['comment_model', 'nickname_model'])
+            else:
+                self._do_not_download.extend(['comment_quantize', 'nickname_quantize'])
 
-    def download_models(self):
-        if not os.path.isdir(self.__MODEL_DIR):
-            os.mkdir(self.__MODEL_DIR)
-        
-        self.download_dataset()
+        self._model_download_root_dir = os.path.join(project_root_dir, os.getenv("MODEL_SAVE_DIR_NAME"))
+        self._mkdir(self._model_download_root_dir)
 
-        for (_, folder_id) in self.__model_folder_ids.items():
-            folder = self.__service.files().get(fileId=folder_id).execute()
-            folder_name = folder.get("name")
-            page_token = None
-            
-            results = (
-                self.__service.files()
-                    .list(
-                        q=f"'{folder_id}' in parents",
-                        spaces="drive",
-                        fields="nextPageToken, files(id, name, mimeType)"
-                    )
-                    .execute()
-            )
-            page_token = results.get("nextPageToken", None)
-            if page_token is None:
-                items = results.get("files", [])
-                for item in items:
-                    bfolderpath = os.path.join(self.__MODEL_DIR, folder_name)
-                    if not os.path.isdir(bfolderpath):
-                        os.mkdir(bfolderpath)
+        self._model_folder_id = model_folder_id
 
-                    filepath = os.path.join(bfolderpath, item["name"])
-                    self.__download_files(item["id"], filepath)
+        self.GOOGLE_DRIVE_FOLDER_TYPE = 'application/vnd.google-apps.folder'
 
-        print("Download Model Finished!")
+    def _mkdir(self, dir_path):
+        if not os.path.exists(dir_path):
+            os.mkdir(dir_path)
 
-    def download_dataset(self):
-        results = (
-            self.__service.files()
-                .list(
-                    q=f"'{self.__DATASET_DRIVE_URL}' in parents",
-                    spaces="drive",
-                    fields="nextPageToken, files(id, name, mimeType)"
-                )
-                .execute()
-        )
-        page_token = results.get("nextPageToken", None)
-        if page_token is None:
-            items = results.get("files", [])
-            for item in items:
-                if item["mimeType"] == 'text/csv':
-                    if not os.path.isdir(self.__MODEL_DIR):
-                        os.mkdir(self.__MODEL_DIR)
-                    filepath = os.path.join(self.__MODEL_DIR, item["name"])
-                    self.__download_files(item["id"], filepath)
+    def _get_folders_data(self, folder_id):
+        return self._service.files().list(
+            q=f"'{folder_id}' in parents",
+            spaces='drive',
+            fields='nextPageToken, files(id, name, mimeType)',
+        ).execute()
 
-    def __download_files(self, dowid, dfilespath):
-        request = self.__service.files().get_media(fileId=dowid)
-        fh = io.BytesIO()
-        downloader = MediaIoBaseDownload(fh, request)
+    def _recursive(self, folder_id, path='root'):
+        items = self._get_folders_data(folder_id)
+        for item in items.get('files'):
+            item_name = item.get('name')
+            item_id = item.get('id')
+            if item_name in self._do_not_download:
+                continue
+            curr_path = f'''{path}/{item_name}'''
+            if item.get('mimeType') == self.GOOGLE_DRIVE_FOLDER_TYPE:
+                self._mkdir(curr_path)
+                self._recursive(item_id, curr_path)
+            else:
+                self._download_file(path, item)
+    
+    def download(self):
+        print('download from google drive started...')
+        self._recursive(self._model_folder_id, self._model_download_root_dir)
+        print('download from google drive finished!')
+
+    def _download_file(self, target_dir, file_info):
+        file_id = file_info.get('id')
+        file_name = file_info.get('name')
+
+        request = self._service.files().get_media(fileId=file_id)
+
+        downloaded_file = io.BytesIO()
+        downloader = MediaIoBaseDownload(fd=downloaded_file, request=request)
         done = False
-        while done is False:
-            _, done = downloader.next_chunk()
 
-        with io.open(dfilespath, "wb") as f:
-            fh.seek(0)
-            f.write(fh.read())
+        desc = f'''{file_name:<30} '''
+        pbar = tqdm(ncols=150, desc=desc)
+        while done is False:
+            status, done = downloader.next_chunk()
+            if pbar.total is None:
+                pbar.total = status.total_size
+            
+            if status:
+                pbar.update(int(status.progress() * status.total_size) - pbar.n)
+        pbar.close()
+
+        save_path = f'''{target_dir}/{file_name}'''
+        with open(save_path, 'wb') as localfile:
+            localfile.write(downloaded_file.getvalue())
 
 if __name__ == "__main__":
-    root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    downloader = DownloadFromGoogleDrive(root_dir)
-    downloader.download_dataset()
-    downloader.download_models()
+    try:
+        curr_dir = os.path.dirname(os.path.abspath(__file__))
+        root_dir = os.path.abspath(os.path.join(curr_dir, '..'))
+        load_dotenv(os.path.join(root_dir, 'env', '.env'))
+        downlader = DownloadFromGoogleDrive(project_root_dir=root_dir,
+                                            model_folder_id=os.getenv('MODEL_ROOT_FOLDER_ID'),
+                                            test_mode=True)
+        downlader.download()
+    except Exception as e:
+        print(e.message)
