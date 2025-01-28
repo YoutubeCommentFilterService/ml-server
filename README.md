@@ -1,6 +1,70 @@
-# DownloadFromGoogleDrive
+# Introduction
 
-## Introduction
+## 디렉터리 구조
+
+```
+.
+├── README.md
+├── config.json
+├── env
+│   ├── .env                                    # 실행에 필요한 환경변수를 담아뒀습니다.
+│   └── ml-server-key.json                      # google drive에 접근하기 위한 서비스 계정입니다.
+├── helpers
+│   ├── __init__.py                             # main.py에서 불러오기 편하도록 작성한 init입니다.
+│   ├── download_from_google_drive.py
+│   ├── onnx_classification_model.py
+│   └── transformer_classification_model.py
+├── main.py
+└── model                                       # 학습한 모델들이 담기는 디렉터리입니다.
+```
+
+## 패키지 설치
+
+- x86_64 환경
+
+  > pip install -r requirements_x86-64.txt
+
+- arm64 환경
+  > pip install -r requirements_arm64.txt
+
+# Helper
+
+## 텍스트 클래스 분류기
+
+### Introduction
+
+> 두 모델은 동일한 메서드를 지원합니다!
+
+load로 model과 tokenizer를 불러오고, predict로 추론하면 됩니다.
+
+실행 환경에 따라 선택적으로 사용하게 됩니다.
+
+- TransformerClassificationModel
+
+  > CUDA를 사용할 수 있는 경우. 성능이 좋습니다.
+
+- ONNXClassificationModel
+  > CUDA를 사용할 수 없는 경우. onnx를 양자화하여 실행 시간을 줄였습니다.
+
+### Usage
+
+```python
+root_dir=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+nickname_model=TransformerClassificationModel(model_type="nickname",
+                                                base_path=root_dir+'/model')
+nickname_model=ONNXClassificationModel(model_type="nickname",
+                                                base_path=root_dir+'/model')
+nickname_model.load()
+
+text=input("검증할 닉네임을 입력해주세요: ")
+nickname=re.sub(r"-._", " ", text)
+predicted=nickname_model.predict(text)
+print(predicted, type(nickname_model.predict(text)))
+```
+
+## DownloadFromGoogleDrive
+
+### Introduction
 
 파이썬에서 Google Drive의 파일을 다운받기 위한 방법을 설명해드립니다.
 
@@ -18,9 +82,9 @@
 
 추후 리팩토링을 통해 범용적으로 사용할 수 있도록 할 예정입니다!
 
-## Settings
+### Settings
 
-### GCP 프로젝트 설정 및 키 생성
+#### GCP 프로젝트 설정 및 키 생성
 
 1. 먼저 gcp 프로젝트를 만들어줍니다.
 
@@ -79,14 +143,14 @@
 
    ![Google Drive API 활성화](img/11-api-install.png)
 
-### 파이썬에서 적용
+#### 파이썬에서 적용
 
 7.  필요한 패키지를 받습니다.
 
     oauth 로그인이 아닌, 사용자 인증을 구글로부터 이미 받았기에 google-api-python-client만 필요합니다.
 
     ```
-    pip install google-api-python-client
+    pip install --upgrade google-api-python-client
 
     pip install python-dotenv, torch, tqdm
         dotenv: 서버에서 실행할 환경을 env로 불러옴
@@ -154,7 +218,7 @@
 
     </details>
 
-## Usage
+### Usage
 
 ```python
 curr_dir = os.path.dirname(os.path.abspath(__file__))
