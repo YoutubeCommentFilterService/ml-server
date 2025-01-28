@@ -23,6 +23,9 @@ else:
 downloader = DownloadFromGoogleDrive(project_root_dir=project_root_dir,
                                      model_folder_id=os.getenv('MODEL_ROOT_FOLDER_ID'))
 
+if not os.path.exists('./model'):
+    downloader.download()
+
 app = FastAPI()
 
 class PredictRequest(BaseModel):
@@ -39,7 +42,6 @@ async def shutdown():
 
 app.add_event_handler("startup", startup)
 app.add_event_handler("shutdown", shutdown)
-
 
 @app.post("/predict")
 def predict(data: PredictRequest):
@@ -76,6 +78,5 @@ def update_dataset():
             'message': str(e)
         }
 
-    
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)

@@ -22,6 +22,9 @@ class ONNXClassificationModel:
 
     def load(self):
         try:
+            if self.session:
+                return
+            
             self.generate_label_array()
 
             self._raise_file_not_fount(self.tokenizer_path)

@@ -29,12 +29,11 @@ class DownloadFromGoogleDrive():
         self._do_not_download = ['dataset-backup', 'comment_onnx', 'nickname_onnx']
         if not test_mode:
             if torch.cuda.is_available():
-                self._do_not_download.extend(['comment_model', 'nickname_model'])
-            else:
                 self._do_not_download.extend(['comment_quantize', 'nickname_quantize'])
+            else:
+                self._do_not_download.extend(['comment_model', 'nickname_model'])
 
         self._model_download_root_dir = os.path.join(project_root_dir, os.getenv("MODEL_SAVE_DIR_NAME"))
-        self._mkdir(self._model_download_root_dir)
 
         self._model_folder_id = model_folder_id
 
@@ -67,6 +66,8 @@ class DownloadFromGoogleDrive():
     
     def download(self):
         print('download from google drive started...')
+        if not os.path.exists(self._model_download_root_dir):
+            os.mkdir(self._model_download_root_dir)
         self._recursive(self._model_folder_id, self._model_download_root_dir)
         print('download from google drive finished!')
 
