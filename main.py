@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
+from typing import List
 from dotenv import load_dotenv
 
 import torch
@@ -28,9 +29,23 @@ if not os.path.exists('./model'):
 
 app = FastAPI()
 
-class PredictRequest(BaseModel):
+class PredictItem(BaseModel):
+    id: str
     nickname: str
     comment: str
+    
+class PredictResult(BaseModel):
+    id: str
+    nickname_original: str
+    nickname_predicted: str
+    comment_original: str
+    comment_predicted: str
+
+class PredictRequest(BaseModel):
+    items: List[PredictItem]
+
+class PredictResponse(BaseModel):
+    items: List[PredictResult]
 
 async def startup():
     nickname_model.load()
@@ -46,21 +61,27 @@ app.add_event_handler("shutdown", shutdown)
 @app.post("/predict")
 def predict(data: PredictRequest):
     try:
-        # 요청에서 텍스트 데이터 가져오기
-        comment = data.comment
-        nickname = data.nickname
-        nickname = re.sub(r'[-._]', ' ', nickname)
-        
-        # 예측 수행
-        comment_output = comment_model.predict(comment)
-        nickname_output = nickname_model.predict(nickname)
+        items = data.items
+        response_data = []
+
+        for item in items:
+            comment = item.comment
+            comment = re.sub(r'\d+:(?:\d+:?)?\d+', '[TIME]', comment)
+
+            nickname = item.nickname
+            nickname = re.sub(r'[-._]', ' ', nickname)
+
+            comment_output = comment_model.predict(comment)
+            nickname_output = nickname_model.predict(nickname)
+
+            response_data.append(PredictResult(id=item.id, 
+                                               nickname_original=item.nickname,
+                                               nickname_predicted=nickname_output,
+                                               comment_original=item.comment,
+                                               comment_predicted=comment_output))
         
         # 결과 반환
-        return {
-            'status': 'success',
-            'nickname': nickname_output,
-            'comment': comment_output
-        }
+        return PredictResponse(items=response_data)
     
     except Exception as e:
         return {
@@ -71,7 +92,9 @@ def predict(data: PredictRequest):
 @app.patch("/update")
 def update_dataset():
     try:
-        None
+        downloader.download()
+        nickname_model.reload()
+        comment_model.reload()
     except Exception as e:
         return {
             'status': 'error',
