@@ -8,11 +8,14 @@ import torch
 import re
 import os
 
-from helpers import ONNXClassificationModel, TransformerClassificationModel, DownloadFromGoogleDrive
+from helpers import ONNXClassificationModel, TransformerClassificationModel, GoogleDriveHelper
 
 project_root_dir = os.path.dirname(os.path.abspath(__file__))
 
 load_dotenv(os.path.join(project_root_dir, "env", ".env"))
+google_drive_owner_email = os.getenv("GOOGLE_DRIVE_OWNER_EMAIL")
+do_not_download_list = ['dataset-backup']
+google_client_key_path = os.path.join(project_root_dir, 'env', 'ml-server-key.json')
 
 if torch.cuda.is_available():
     comment_model = TransformerClassificationModel(model_type="comment")
@@ -21,11 +24,15 @@ else:
     comment_model = ONNXClassificationModel(model_type="comment")
     nickname_model = ONNXClassificationModel(model_type="nickname")
 
-downloader = DownloadFromGoogleDrive(project_root_dir=project_root_dir,
-                                     model_folder_id=os.getenv('MODEL_ROOT_FOLDER_ID'))
+helper = GoogleDriveHelper(project_root_dir=project_root_dir,
+                           google_client_key_path=google_client_key_path,
+                           google_drive_owner_email=google_drive_owner_email,
+                           do_not_download_list=do_not_download_list,
+                           local_target_root_dir_name='model',
+                           drive_root_folder_name='comment-filtering')
 
 if not os.path.exists('./model'):
-    downloader.download()
+    helper.download_all_files()
 
 app = FastAPI()
 

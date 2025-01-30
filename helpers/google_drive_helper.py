@@ -18,6 +18,7 @@ class GoogleDriveHelper():
                  drive_root_folder_name:str,
                  local_target_root_dir_name:str,
                  do_not_download_list:list=[],
+                 do_not_upload_list:list=[],
                  test_mode:bool=False):
         self.GOOGLE_DRIVE_FOLDER_TYPE = 'application/vnd.google-apps.folder'
         self.MIME_TYPE_OCTET = 'application/octet-stream'
@@ -33,7 +34,8 @@ class GoogleDriveHelper():
         self.project_root_dir = project_root_dir
         self.test_mode = test_mode
         self.google_drive_owner_email = google_drive_owner_email
-        self.do_not_fownload_list = do_not_download_list
+        self.do_not_download_list = do_not_download_list
+        self.do_not_upload_list = do_not_upload_list
         self.drive_root_folder_name = drive_root_folder_name
         self.local_target_root_dir = os.path.join(project_root_dir, local_target_root_dir_name)
 
@@ -172,6 +174,9 @@ class GoogleDriveHelper():
         file_path: Path = Path(file_path)
 
         relative_path = file_path.relative_to(remove_path)
+        if relative_path.parts[-1] in self.do_not_upload_list:
+            return
+    
         for folder_name in relative_path.parts[:-1]:
             if not self.is_exists(folder_name=folder_name):
                 self.create_folder(folder_name=folder_name, parent_folder_name=parent_folder_name)
@@ -195,6 +200,8 @@ class GoogleDriveHelper():
                                                 filename=filename,
                                                 file_size=file_path.stat().st_size)
             
+            print(upload_type)
+            
             if upload_type == 'c':
                 self.directory_struct[parent_folder_name][filename] = {'id': file_id,
                                                                         'parent_id': self.directory_struct[parent_folder_name]['id']}
@@ -203,13 +210,11 @@ class GoogleDriveHelper():
             print(e)
 
     def _create_file(self, media:MediaIoBaseUpload, parent_folder_name:str, filename:str) -> Tuple[Any, str]:
-        print(f'create file {filename} stated')
         parent_folder_id = self.directory_struct[parent_folder_name].get("id")
         metadata = {'name': filename, 'parents': [parent_folder_id]}
         return self._file_service.create(media_body=media, body=metadata, fields="id"), 'c'
 
     def _update_file(self, media:MediaIoBaseUpload, parent_folder_name:str, filename:str) -> Tuple[Any, str]:
-        print(f'update file {filename} stated')
         file_id = self.directory_struct[parent_folder_name][filename].get("id")
         return self._file_service.update(fileId=file_id, media_body=media), 'u'
     
@@ -218,39 +223,38 @@ class GoogleDriveHelper():
             response = None
             while response is None:
                 status, response = request.next_chunk()
-                if status is not None:
-                    pbar.update(max(0, status.progress() * file_size - pbar.n))
+                pbar.update(max(0, (status.progress() if status is not None else 1) * file_size - pbar.n))
         
         return response.get('id', None)
 
     # ============================================ download file ============================================
-    def download_all_files(self):
+    def download_all_files(self, specific_file:str):
         print('download starts...')
         self._download_recursive(folder_id=self.directory_struct[self.drive_root_folder_name].get('id'),
-                                 curr_local_path=os.path.join(self.project_root_dir, 'model'))
+                                 curr_local_path=os.path.join(self.project_root_dir, 'model'),
+                                 specific_file=specific_file)
         print('download finished!')
 
-    def download_file(self, filename:str):
-        None
-
-    def _download_recursive(self, folder_id:str, curr_local_path:str):
+    def _download_recursive(self, folder_id:str, curr_local_path:str, specific_file:str|None=None):
         if not os.path.exists(curr_local_path):
             os.mkdir(curr_local_path)
 
         items = self.get_all_items(folder_id)
         for item in items:
-            mime_type = item.get("mimeType")
-
-            if mime_type == self.mime_type.get('folder'): # folder
+            if item.get("mimeType") == self.mime_type.get('folder'): # folder
                 self._download_recursive(folder_id=item.get('id'), 
                                          curr_local_path=os.path.join(curr_local_path, item.get('name')))
             else: # file
                 self._download_file(file=item,
-                                    curr_local_path=curr_local_path)
+                                    curr_local_path=curr_local_path,
+                                    specific_file=specific_file)
 
-    def _download_file(self, file:dict, curr_local_path:str):
+    def _download_file(self, file:dict, curr_local_path:str, specific_file:str|None=None):
         file_id = file.get('id')
         filename = file.get('name')
+
+        if specific_file and filename != specific_file:
+            return
 
         request = self._file_service.get_media(fileId=file_id)
 
@@ -288,7 +292,7 @@ class GoogleDriveHelper():
             if (page_token := response.get('nextPageToken', None)) is None:
                 break
 
-        results = list(filter(lambda x: x.get('name') not in self.do_not_fownload_list, results))
+        results = list(filter(lambda x: x.get('name') not in self.do_not_download_list, results))
         return results
 
     # ============================================ delete file ============================================
