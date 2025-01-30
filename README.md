@@ -64,9 +64,11 @@ print(predicted, type(nickname_model.predict(text)))
 
 ## DownloadFromGoogleDrive
 
+> 이 클래스는 Deprecated 되었습니다. GoogleDriveHelper를 사용해주시기 바랍니다.
+
 ### Introduction
 
-파이썬에서 Google Drive의 파일을 다운받기 위한 방법을 설명해드립니다.
+파이썬에서 Google Drive의 파일을 다운받는 helper class입니다.
 
 1. GCP에서 필요한 key file 생성 및 API 구독
 2. 파이썬에서의 적용
@@ -81,6 +83,33 @@ print(predicted, type(nickname_model.predict(text)))
 또한 하나의 디렉터리만 타겟으로 다운받도록 하였습니다.
 
 추후 리팩토링을 통해 범용적으로 사용할 수 있도록 할 예정입니다!
+
+### Usage
+
+```python
+curr_dir = os.path.dirname(os.path.abspath(__file__))
+root_dir = os.path.abspath(os.path.join(curr_dir, '..'))
+load_dotenv(os.path.join(root_dir, 'env', '.env'))
+downlader = DownloadFromGoogleDrive(project_root_dir=root_dir,
+                                    model_folder_id=os.getenv('MODEL_ROOT_FOLDER_ID'),
+                                    test_mode=True)
+downlader.download()
+```
+
+## GoogleDriveHelper
+
+### Intdoduction
+
+위에서 작성한 `DownloadFromGoogleDrive`를 리팩토링한 클래스입니다.
+
+upload, download, delete를 지원합니다.
+
+파일 및 폴더 업로드 후 발생한 파일 및 폴더가 나타나지 않음을 해결하였습니다.
+
+```
+업로드 후 해당 id를 가진 파일의 권한을 writer로 합니다.
+google service account는 하나의 계정으로 취급되어, drive owner과는 다른 drive를 사용합니다.
+```
 
 ### Settings
 
@@ -143,9 +172,15 @@ print(predicted, type(nickname_model.predict(text)))
 
    ![Google Drive API 활성화](img/11-api-install.png)
 
+#### 구글 드라이브의 폴더 권한 공유
+
+7. Google Drive에서 폴더의 접근 권한을 설정합니다.
+
+   ![Google Drive의 폴더에서 google service account의 액세스 권한을 공유](img/12-google-drive-share-option.png)
+
 #### 파이썬에서 적용
 
-7.  필요한 패키지를 받습니다.
+8.  필요한 패키지를 받습니다.
 
     oauth 로그인이 아닌, 사용자 인증을 구글로부터 이미 받았기에 google-api-python-client만 필요합니다.
 
@@ -158,7 +193,7 @@ print(predicted, type(nickname_model.predict(text)))
         tqdm: 진행상황을 확인할 수 있는 모듈
     ```
 
-8.  받은 secret key를 업로드하고 .env를 작성합니다.
+9.  받은 secret key를 업로드하고 .env를 작성합니다.
 
     ```
     // .env
@@ -175,7 +210,7 @@ print(predicted, type(nickname_model.predict(text)))
 
     </details>
 
-9.  service를 작성합니다.
+10. service를 작성합니다.
 
     ```python
     from googleapiclient.discovery import build
@@ -218,14 +253,65 @@ print(predicted, type(nickname_model.predict(text)))
 
     </details>
 
+11. 업로드한 파일의 권한을 수정하는 코드를 작성합니다.
+
+    owner를 설정하는 것은 권한 오류로 인해 불가능합니다. 실제로 권한이 있는 key file을 썼음에도 403 error가 발생하였습니다.  
+    따라서 writer로 바꾸는 편법을 사용하여 드라이브를 가진 유저가 삭제할 수 있도록 합니다.
+
+    외부의 다른 사용자가 보지 못하게 하고싶다면, permission_reader를 설정하는 부분을 주석처리하면 됩니다.
+
+    ```python
+    def _change_permission(self, file_id:str):
+        # permission_owner = {'type': 'user', 'role': 'owner', 'emailAddress': self.google_drive_owner_email}
+        permission_writer = {'type': 'user', 'role': 'writer', 'emailAddress': self.google_drive_owner_email}
+        permission_reader = {'type': 'anyone', 'role': 'reader'}
+
+        self._permission_service.create(fileId=file_id, body=permission_writer, sendNotificationEmail=False).execute()
+        self._permission_service.create(fileId=file_id, body=permission_reader, sendNotificationEmail=False).execute()
+    ```
+
 ### Usage
 
 ```python
-curr_dir = os.path.dirname(os.path.abspath(__file__))
-root_dir = os.path.abspath(os.path.join(curr_dir, '..'))
-load_dotenv(os.path.join(root_dir, 'env', '.env'))
-downlader = DownloadFromGoogleDrive(project_root_dir=root_dir,
-                                    model_folder_id=os.getenv('MODEL_ROOT_FOLDER_ID'),
-                                    test_mode=True)
-downlader.download()
+helper = GoogleDriveHelper(
+  project_root_dir=root_dir, # 프로젝트의 루트 경로입니다.
+  google_client_key_path=google_client_key_path, # GCP에서 만든 google service account의 key가 있는 경로입니다.
+  google_drive_owner_email=google_drive_owner_email, # 권한 이전용 이메일입니다.
+  do_not_download_list=do_not_download_list, # 다운로드하지 않을 파일 및 폴더 이름을 적으면 됩니다.
+  local_target_root_dir_name="model", # 업로드할 파일들이 모여있는 로컬 디렉터리입니다.
+  drive_root_folder_name='comment-filtering', # google drive에서 사용할 root folder 이름입니다.
+  test_mode=True # 테스트 모드를 켭니다.
+)
+
+# 메타데이터 관련
+#   구글 드라이브의 디렉터리 경로를 dictionary로 초기화합니다.
+helper.create_folder_and_file_metadatas()
+helper.print_directory_metadata()
+
+# 파일이나 폴더의 유무 확인
+#   folder_name: 폴더 이름입니다. 필수 항목입니다.
+#   filename: 파일 이름입니다. 만약 없다면 폴더를 검색하고 있다면 파일을 검색합니다.
+helper.is_exists(folder_name, filename)
+
+# 파일 업로드
+#   초기화시 설정한 local_target_root_dir_name 밑에 있는 모든 파일을 업로드합니다.
+helper.upload_all_files()
+#   특정 파일을 업로드합니다.
+#     file_path: 파일의 경로입니다.
+#     parent_filder_name: google drive의
+#     additional_path:
+helper.upload_file(file_path, parent_folder_name, additional_path)
+
+# 파일 다운로드
+#   초기화시 설정한 drive_root_folder_name 밑의 모든 파일을 다운로드 합니다.
+helper.download_all_files()
+#   특정 파일을 다운로드합니다. 같은 이름이 여러 개 존재한다면 디렉터리를 만들고 다운로드 합니다.
+#     filename: 파일의 이름입니다.
+helper.download_file(filename)
+
+# 파일 삭제
+#   파일을 완전 삭제합니다.
+helper.delete_file(file_id)
+#   파일을 휴지통으로 이동시킵니다.
+helper.move_to_trash(file_id)
 ```
