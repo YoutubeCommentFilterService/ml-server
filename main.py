@@ -14,15 +14,29 @@ project_root_dir = os.path.dirname(os.path.abspath(__file__))
 
 load_dotenv(os.path.join(project_root_dir, "env", ".env"))
 google_drive_owner_email = os.getenv("GOOGLE_DRIVE_OWNER_EMAIL")
-do_not_download_list = ['dataset-backup']
+do_not_download_list = ['dataset-backup', 'comment_onnx', 'nickname_onnx']
 google_client_key_path = os.path.join(project_root_dir, 'env', 'ml-server-key.json')
 
-if torch.cuda.is_available():
-    comment_model = TransformerClassificationModel(model_type="comment")
-    nickname_model = TransformerClassificationModel(model_type="nickname")
-else:
-    comment_model = ONNXClassificationModel(model_type="comment")
-    nickname_model = ONNXClassificationModel(model_type="nickname")
+comment_model = ONNXClassificationModel(model_type="comment")
+nickname_model = ONNXClassificationModel(model_type="nickname")
+do_not_download_list.extend(['comment_quantize', 'nickname_quantize'])
+print("ONNX loaded")
+
+# comment_model = TransformerClassificationModel(model_type="comment")
+# nickname_model = TransformerClassificationModel(model_type="nickname")
+# do_not_download_list.extend(['comment_quantize', 'nickname_quantize'])
+# print("BERT loaded")
+
+# if torch.cuda.is_available():
+#     comment_model = TransformerClassificationModel(model_type="comment")
+#     nickname_model = TransformerClassificationModel(model_type="nickname")
+#     do_not_download_list.extend(['comment_quantize', 'nickname_quantize'])
+#     print("BERT loaded")
+# else:
+#     comment_model = ONNXClassificationModel(model_type="comment")
+#     nickname_model = ONNXClassificationModel(model_type="nickname")
+#     do_not_download_list.extend(['comment_quantize', 'nickname_quantize'])
+#     print("ONNX loaded")
 
 helper = GoogleDriveHelper(project_root_dir=project_root_dir,
                            google_client_key_path=google_client_key_path,
@@ -96,10 +110,42 @@ def predict(data: PredictRequest):
             'message': str(e)
         }
     
+@app.post("/predict/batch")
+def predict_batch(data: PredictRequest):
+    try:
+        items = data.items
+        response_data = []
+
+        comments = [
+            re.sub(r'chill', '칠', 
+                   re.sub(r'\d+:(?:\d+:?)?\d+', '[TIME]', item.comment), flags=re.IGNORECASE)
+                    for item in items]
+        nicknames = [re.sub(r'[-._]', ' ', item.nickname) for item in items]
+
+        comment_outputs = comment_model.predict_batch(comments)
+        nickname_outputs = nickname_model.predict_batch(nicknames)
+
+
+        for item, comment_output, nickname_output in zip(items, comment_outputs, nickname_outputs):
+            response_data.append(PredictResult(id=item.id, 
+                                               nickname_original=item.nickname,
+                                               nickname_predicted=nickname_output,
+                                               comment_original=item.comment,
+                                               comment_predicted=comment_output))
+        
+        # 결과 반환
+        return PredictResponse(items=response_data)
+    
+    except Exception as e:
+        return {
+            'status': 'error',
+            'message': str(e)
+        }
+    
 @app.patch("/update")
 def update_dataset():
     try:
-        downloader.download()
+        helper.download_all_files()
         nickname_model.reload()
         comment_model.reload()
     except Exception as e:

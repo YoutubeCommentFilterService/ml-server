@@ -77,7 +77,7 @@ class TransformerClassificationModel:
         inputs=self.tokenizer(text,
                               return_tensors="pt",
                               truncation=True,
-                              padding=True,
+                              padding='max_length',
                               max_length=self.max_length)
         
         inputs={ key: val.to(self.device) for key, val in inputs.items() }
@@ -85,10 +85,34 @@ class TransformerClassificationModel:
         with torch.no_grad():
             outputs=self.model(**inputs)
             predicted_class_index=torch.argmax(outputs.logits, dim=1).item()
-
-        del inputs, outputs
         
         return self.label_array[predicted_class_index]
+    
+    def predict_batch(self, texts: list[str]) -> list[str]:
+        if self.model is None or self.tokenizer is None:
+            raise RuntimeError("Model or tokenizer not loaded")
+        
+
+        batch_size = 128
+
+        all_predictions = []
+        for i in range(0, len(texts), batch_size):
+            batch_texts = texts[i:i + batch_size]
+        
+            inputs = self.tokenizer(batch_texts,
+                                    return_tensors="pt",
+                                    truncation=True,
+                                    padding='max_length',
+                                    max_length=self.max_length)
+            inputs = {key: val.to(self.device) for key, val in inputs.items()}
+
+            with torch.no_grad():
+                outputs = self.model(**inputs)
+                predicted_class_indexes = torch.argmax(outputs.logits, dim=1).tolist()
+
+            batch_predictions = [self.label_array[idx] for idx in predicted_class_indexes]
+            all_predictions.extend(batch_predictions)
+        return all_predictions
 
 if __name__ == "__main__":
     print('cuda available: ', torch.cuda.is_available())

@@ -33,7 +33,11 @@ class ONNXClassificationModel:
             self._raise_file_not_fount(self.quantize_path)
             sess_options=onnxruntime.SessionOptions()
             sess_options.graph_optimization_level=onnxruntime.GraphOptimizationLevel.ORT_ENABLE_ALL
-            sess_options.intra_op_num_threads=1
+            sess_options.intra_op_num_threads=0 # 연산 내부를 병렬화, 0은 cpu 코어 개수를 알아서 설정
+            sess_options.inter_op_num_threads=1 # 연산 간 병령 실행, NLP는 대부분 직렬
+
+            sess_options.enable_mem_pattern = True  # 8GB RAM이므로 활성화
+            sess_options.execution_mode = onnxruntime.ExecutionMode.ORT_SEQUENTIAL  # 병렬 실행 최적화. ORT_SEQUENTIAL / ORT_PARALLEL
 
             # ONNX 세션 생성
             providers=['CPUExecutionProvider']
@@ -86,12 +90,12 @@ class ONNXClassificationModel:
         
         # 토크나이저를 사용하여 입력 텍스트 전처리
         inputs=self.tokenizer(text,
-                              padding=True,
+                              padding="longest",
                               truncation=True,
                               max_length=self.max_length,
                               return_tensors="np")
 
-        inputs={name: inputs[name].astype(np.int64) for name in self.input_names}
+        inputs={name: inputs[name].astype(np.int8) for name in self.input_names}
 
         outputs=self.session.run(None, inputs)
         output_values=outputs[0]
@@ -100,6 +104,35 @@ class ONNXClassificationModel:
         del inputs, outputs
 
         return self.label_array[predicted_class_index]
+    
+    def predict_batch(self, texts: str | list[str]):
+        if self.session is None or self.tokenizer is None:
+            raise RuntimeError("Model or tokenizer not loaded")
+        
+        try:
+            if isinstance(texts, str):
+                texts = [texts]
+
+            inputs = self.tokenizer(texts,
+                                    padding="longest",
+                                    truncation=True,
+                                    max_length=self.max_length,
+                                    return_tensors="np")
+            inputs={name: inputs[name].astype(np.int64) for name in self.input_names}
+
+            outputs = self.session.run(None, inputs)
+            output_values = outputs[0]
+
+            predicted_class_indeces = np.argmax(output_values, axis=-1)
+            predicted_labels = [self.label_array[idx] for idx in predicted_class_indeces]
+
+            del inputs, outputs
+            return predicted_labels
+        
+        except Exception as e:
+            print(e)
+            return []
+
     
 if __name__ == "__main__":
     root_dir=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

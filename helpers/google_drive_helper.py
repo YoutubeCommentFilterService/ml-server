@@ -228,7 +228,7 @@ class GoogleDriveHelper():
         return response.get('id', None)
 
     # ============================================ download file ============================================
-    def download_all_files(self, specific_file:str):
+    def download_all_files(self, specific_file:str|None=None):
         print('download starts...')
         self._download_recursive(folder_id=self.directory_struct[self.drive_root_folder_name].get('id'),
                                  curr_local_path=os.path.join(self.project_root_dir, 'model'),
