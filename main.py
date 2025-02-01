@@ -14,29 +14,19 @@ project_root_dir = os.path.dirname(os.path.abspath(__file__))
 
 load_dotenv(os.path.join(project_root_dir, "env", ".env"))
 google_drive_owner_email = os.getenv("GOOGLE_DRIVE_OWNER_EMAIL")
-do_not_download_list = ['dataset-backup', 'comment_onnx', 'nickname_onnx']
+do_not_download_list = ['dataset-backup']
 google_client_key_path = os.path.join(project_root_dir, 'env', 'ml-server-key.json')
 
-comment_model = ONNXClassificationModel(model_type="comment")
-nickname_model = ONNXClassificationModel(model_type="nickname")
-do_not_download_list.extend(['comment_quantize', 'nickname_quantize'])
-print("ONNX loaded")
-
-# comment_model = TransformerClassificationModel(model_type="comment")
-# nickname_model = TransformerClassificationModel(model_type="nickname")
-# do_not_download_list.extend(['comment_quantize', 'nickname_quantize'])
-# print("BERT loaded")
-
-# if torch.cuda.is_available():
-#     comment_model = TransformerClassificationModel(model_type="comment")
-#     nickname_model = TransformerClassificationModel(model_type="nickname")
-#     do_not_download_list.extend(['comment_quantize', 'nickname_quantize'])
-#     print("BERT loaded")
-# else:
-#     comment_model = ONNXClassificationModel(model_type="comment")
-#     nickname_model = ONNXClassificationModel(model_type="nickname")
-#     do_not_download_list.extend(['comment_quantize', 'nickname_quantize'])
-#     print("ONNX loaded")
+if torch.cuda.is_available():
+    comment_model = TransformerClassificationModel(model_type="comment")
+    nickname_model = TransformerClassificationModel(model_type="nickname")
+    do_not_download_list.extend(['comment_onnx', 'nickname_onnx'])
+    print("BERT loaded")
+else:
+    comment_model = ONNXClassificationModel(model_type="comment")
+    nickname_model = ONNXClassificationModel(model_type="nickname")
+    do_not_download_list.extend(['comment_model', 'nickname_model'])
+    print("ONNX loaded")
 
 helper = GoogleDriveHelper(project_root_dir=project_root_dir,
                            google_client_key_path=google_client_key_path,

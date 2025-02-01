@@ -11,7 +11,7 @@ class ONNXClassificationModel:
     def __init__(self, model_type:str, base_path:str="./model"):
         self.model_type=model_type
 
-        self.quantize_path=os.path.join(base_path, f"{model_type}_quantize", 'model_quantized.onnx')
+        self.quantize_path=os.path.join(base_path, f"{model_type}_onnx", 'model.onnx')
         self.tokenizer_path=os.path.join(base_path, f"{model_type}_tokenizer")
         self.dataset_path=os.path.join(base_path, 'dataset.csv')
 
