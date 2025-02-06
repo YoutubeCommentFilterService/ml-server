@@ -47,9 +47,7 @@ class PredictItem(BaseModel):
     
 class PredictResult(BaseModel):
     id: str
-    nickname_original: str
     nickname_predicted: str
-    comment_original: str
     comment_predicted: str
 
 class PredictRequest(BaseModel):
@@ -80,15 +78,14 @@ def predict(data: PredictRequest):
             comment = re.sub(r'\d+:(?:\d+:?)?\d+', '[TIME]', comment)
 
             nickname = item.nickname
+            nickname = re.sub(r"-\w{3}$|-\w{5}$", "", nickname)
             nickname = re.sub(r'[-._]', ' ', nickname)
 
             comment_output = comment_model.predict(comment)
             nickname_output = nickname_model.predict(nickname)
 
             response_data.append(PredictResult(id=item.id, 
-                                               nickname_original=item.nickname,
                                                nickname_predicted=nickname_output,
-                                               comment_original=item.comment,
                                                comment_predicted=comment_output))
         
         # 결과 반환
@@ -110,7 +107,8 @@ def predict_batch(data: PredictRequest):
             re.sub(r'chill', '칠', 
                    re.sub(r'\d+:(?:\d+:?)?\d+', '[TIME]', item.comment), flags=re.IGNORECASE)
                     for item in items]
-        nicknames = [re.sub(r'[-._]', ' ', item.nickname) for item in items]
+        nicknames = [re.sub(r"-[a-zA-Z0-9]{3}$|-[a-zA-Z0-9]{5}$", '', item.nickname) for item in items]
+        nicknames = [re.sub(r'[-._]', ' ', nickname) for nickname in nicknames]
 
         comment_outputs = comment_model.predict_batch(comments)
         nickname_outputs = nickname_model.predict_batch(nicknames)
@@ -118,9 +116,7 @@ def predict_batch(data: PredictRequest):
 
         for item, comment_output, nickname_output in zip(items, comment_outputs, nickname_outputs):
             response_data.append(PredictResult(id=item.id, 
-                                               nickname_original=item.nickname,
                                                nickname_predicted=nickname_output,
-                                               comment_original=item.comment,
                                                comment_predicted=comment_output))
         
         # 결과 반환
