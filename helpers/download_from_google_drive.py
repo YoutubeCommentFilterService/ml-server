@@ -20,7 +20,7 @@ https://developers.google.com/drive/api/quickstart/python?hl=ko
 '''
 
 class DownloadFromGoogleDrive():
-    def __init__(self, project_root_dir, model_folder_id, test_mode=False):
+    def __init__(self, project_root_dir: str, model_folder_id: str, test_mode=False):
         with open(os.path.join(project_root_dir, 'env', 'ml-server-key.json'), 'rb') as token:
             credential_info = json.load(token)
         credentials = service_account.Credentials.from_service_account_info(credential_info)
@@ -39,18 +39,18 @@ class DownloadFromGoogleDrive():
 
         self.GOOGLE_DRIVE_FOLDER_TYPE = 'application/vnd.google-apps.folder'
 
-    def _mkdir(self, dir_path):
+    def _mkdir(self, dir_path: str):
         if not os.path.exists(dir_path):
             os.mkdir(dir_path)
 
-    def _get_folders_data(self, folder_id):
+    def _get_folders_data(self, folder_id: str):
         return self._service.files().list(
             q=f"'{folder_id}' in parents",
             spaces='drive',
             fields='nextPageToken, files(id, name, mimeType)',
         ).execute()
 
-    def _recursive(self, folder_id, path='root'):
+    def _recursive(self, folder_id: str, path: str='root'):
         items = self._get_folders_data(folder_id)
         for item in items.get('files'):
             item_name = item.get('name')
@@ -71,7 +71,7 @@ class DownloadFromGoogleDrive():
         self._recursive(self._model_folder_id, self._model_download_root_dir)
         print('download from google drive finished!')
 
-    def _download_file(self, target_dir, file_info):
+    def _download_file(self, target_dir: str, file_info):
         file_id = file_info.get('id')
         file_name = file_info.get('name')
 
