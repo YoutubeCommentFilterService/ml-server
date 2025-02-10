@@ -6,6 +6,8 @@ import os
 import pandas as pd
 import re
 
+from typing import List, Union
+
 class TransformerClassificationModel:
     def __init__(self, model_type:str, base_path:str="./model"):
         self.model_type=model_type
@@ -69,29 +71,13 @@ class TransformerClassificationModel:
     def _raise_file_not_fount(self, path):
         if not os.path.exists(path):
             raise FileNotFoundError(f"file not found at {path}")
-
-    def predict(self, text: str):
-        if self.model is None or self.tokenizer is None:
-            raise RuntimeError("Model or tokenizer not loaded")
-        
-        inputs=self.tokenizer(text,
-                              return_tensors="pt",
-                              truncation=True,
-                              padding='max_length',
-                              max_length=self.max_length)
-        
-        inputs={ key: val.to(self.device) for key, val in inputs.items() }
-
-        with torch.no_grad():
-            outputs=self.model(**inputs)
-            predicted_class_index=torch.argmax(outputs.logits, dim=1).item()
-        
-        return self.label_array[predicted_class_index]
     
-    def predict_batch(self, texts: list[str]) -> list[str]:
+    def predict(self, texts: Union[str, List[str]]) -> List[str]:
         if self.model is None or self.tokenizer is None:
             raise RuntimeError("Model or tokenizer not loaded")
         
+        if isinstance(texts, str):
+            texts = [texts]
 
         batch_size = 128
 
@@ -112,6 +98,10 @@ class TransformerClassificationModel:
 
             batch_predictions = [self.label_array[idx] for idx in predicted_class_indexes]
             all_predictions.extend(batch_predictions)
+
+            del inputs, outputs
+            gc.collect()
+            
         return all_predictions
 
 if __name__ == "__main__":

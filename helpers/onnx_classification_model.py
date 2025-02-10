@@ -1,5 +1,5 @@
 from transformers import AutoTokenizer
-import onnxruntime
+import onnxruntime as ort
 
 import gc
 import os
@@ -7,11 +7,13 @@ import pandas as pd
 import numpy as np
 import re
 
+from typing import Union, Optional, List
+
 class ONNXClassificationModel:
     def __init__(self, model_type:str, base_path:str="./model"):
         self.model_type=model_type
 
-        self.quantize_path=os.path.join(base_path, f"{model_type}_onnx", 'model.onnx')
+        self.onnx_model_path=os.path.join(base_path, f"{model_type}_onnx", 'model.onnx')
         self.tokenizer_path=os.path.join(base_path, f"{model_type}_tokenizer")
         self.dataset_path=os.path.join(base_path, 'dataset.csv')
 
@@ -30,20 +32,26 @@ class ONNXClassificationModel:
             self._raise_file_not_fount(self.tokenizer_path)
             self.tokenizer=AutoTokenizer.from_pretrained(self.tokenizer_path)
 
-            self._raise_file_not_fount(self.quantize_path)
-            sess_options=onnxruntime.SessionOptions()
-            sess_options.graph_optimization_level=onnxruntime.GraphOptimizationLevel.ORT_ENABLE_ALL
+            self._raise_file_not_fount(self.onnx_model_path)
+            sess_options=ort.SessionOptions()
+            sess_options.graph_optimization_level=ort.GraphOptimizationLevel.ORT_ENABLE_ALL
             sess_options.intra_op_num_threads=0 # 연산 내부를 병렬화, 0은 cpu 코어 개수를 알아서 설정
             sess_options.inter_op_num_threads=1 # 연산 간 병령 실행, NLP는 대부분 직렬
 
             sess_options.enable_mem_pattern = True  # 8GB RAM이므로 활성화
-            sess_options.execution_mode = onnxruntime.ExecutionMode.ORT_SEQUENTIAL  # 병렬 실행 최적화. ORT_SEQUENTIAL / ORT_PARALLEL
+
+            # 병렬 실행 최적화. ORT_SEQUENTIAL / ORT_PARALLEL
+            if 'CUDAExecutionProvider' in ort.get_available_providers():
+                sess_options.execution_mode = ort.ExecutionMode.ORT_PARALLEL
+                providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
+            else:
+                sess_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+                providers = ['CPUExecutionProvider']
 
             # ONNX 세션 생성
-            providers=['CPUExecutionProvider']
-            self.session=onnxruntime.InferenceSession(self.quantize_path,
-                                                      sess_options=sess_options,
-                                                      providers=providers)
+            self.session=ort.InferenceSession(self.onnx_model_path,
+                                              sess_options=sess_options,
+                                              providers=providers)
 
             self.input_names=[input.name for input in self.session.get_inputs()]
 
@@ -83,29 +91,8 @@ class ONNXClassificationModel:
     def _raise_file_not_fount(self, path):
         if not os.path.exists(path):
             raise FileNotFoundError(f"file not found at {path}")
-
-    def predict(self, text):
-        if self.session is None or self.tokenizer is None:
-            raise RuntimeError("Model or tokenizer not loaded")
-        
-        # 토크나이저를 사용하여 입력 텍스트 전처리
-        inputs=self.tokenizer(text,
-                              padding="longest",
-                              truncation=True,
-                              max_length=self.max_length,
-                              return_tensors="np")
-
-        inputs={name: inputs[name].astype(np.int8) for name in self.input_names}
-
-        outputs=self.session.run(None, inputs)
-        output_values=outputs[0]
-        predicted_class_index=np.argmax(output_values, axis=-1).item()
-
-        del inputs, outputs
-
-        return self.label_array[predicted_class_index]
     
-    def predict_batch(self, texts: str | list[str]):
+    def predict(self, texts: Union[str | List[str]]):
         if self.session is None or self.tokenizer is None:
             raise RuntimeError("Model or tokenizer not loaded")
         
@@ -114,7 +101,7 @@ class ONNXClassificationModel:
                 texts = [texts]
 
             inputs = self.tokenizer(texts,
-                                    padding="longest",
+                                    padding="max_length",
                                     truncation=True,
                                     max_length=self.max_length,
                                     return_tensors="np")
@@ -127,6 +114,8 @@ class ONNXClassificationModel:
             predicted_labels = [self.label_array[idx] for idx in predicted_class_indeces]
 
             del inputs, outputs
+            gc.collect()
+            
             return predicted_labels
         
         except Exception as e:
