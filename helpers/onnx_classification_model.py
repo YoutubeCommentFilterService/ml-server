@@ -1,4 +1,8 @@
-from transformers import AutoTokenizer
+try:
+    from transformers import AutoTokenizer
+except:
+    from tokenizers import Tokenizer
+
 import onnxruntime as ort
 
 import gc
@@ -30,7 +34,10 @@ class ONNXClassificationModel:
             self.generate_label_array()
 
             self._raise_file_not_fount(self.tokenizer_path)
-            self.tokenizer=AutoTokenizer.from_pretrained(self.tokenizer_path)
+            if os.getenv("HARDWARE") == "JETSON_NANO":
+                self.tokenizer = Tokenizer.from_file(f"{self.tokenizer_path}/tokenizer.json")
+            else:
+                self.tokenizer=AutoTokenizer.from_pretrained(self.tokenizer_path)
 
             self._raise_file_not_fount(self.onnx_model_path)
             sess_options=ort.SessionOptions()
@@ -92,7 +99,7 @@ class ONNXClassificationModel:
         if not os.path.exists(path):
             raise FileNotFoundError(f"file not found at {path}")
     
-    def predict(self, texts: Union[str | List[str]]):
+    def predict(self, texts: Union[str, List[str]]):
         if self.session is None or self.tokenizer is None:
             raise RuntimeError("Model or tokenizer not loaded")
         
@@ -100,20 +107,43 @@ class ONNXClassificationModel:
             if isinstance(texts, str):
                 texts = [texts]
 
-            inputs = self.tokenizer(texts,
-                                    padding="max_length",
-                                    truncation=True,
-                                    max_length=self.max_length,
-                                    return_tensors="np")
-            inputs={name: inputs[name].astype(np.int64) for name in self.input_names}
+            inputs = self._generate_inputs(texts)
 
-            outputs = self.session.run(None, inputs)
-            output_values = outputs[0]
+
+            # if os.getenv("HARDWARE") == "JETSON_NANO":
+            #     encoded_batch = self.tokenizer.encode_batch(texts)
+
+            #     input_ids = np.array([enc.ids[:self.max_length] + [0] * (self.max_length - len(enc.ids)) for enc in encoded_batch], dtype=np.int64)
+            #     attention_mask = np.array([[1] * min(len(enc.ids), self.max_length) + [0] * (self.max_length - len(enc.ids)) for enc in encoded_batch], dtype=np.int64)
+            #     token_type_ids = np.zeros_like(input_ids, dtype=np.int64)
+
+            #     inputs = {
+            #         "input_ids": input_ids,
+            #         "attention_mask": attention_mask,
+            #         "token_type_ids": token_type_ids
+            #     }
+
+            # else:
+            #     inputs = self.tokenizer(texts,
+            #                             padding="max_length",
+            #                             truncation=True,
+            #                             max_length=self.max_length,
+            #                             return_tensors="np")
+            #     inputs={name: inputs[name].astype(np.int64) for name in self.input_names}
+
+            output_values = []
+
+            batch_size = 64
+            for i in range(0, len(texts), batch_size):
+                input_batch = {name: inputs[name][i:i+batch_size].astype(np.int64) for name in self.input_names}
+                outputs = self.session.run(None, input_batch)
+                output_values.extend(outputs[0])
+                del outputs, input_batch
 
             predicted_class_indeces = np.argmax(output_values, axis=-1)
             predicted_labels = [self.label_array[idx] for idx in predicted_class_indeces]
 
-            del inputs, outputs
+            del inputs
             gc.collect()
             
             return predicted_labels
@@ -121,6 +151,30 @@ class ONNXClassificationModel:
         except Exception as e:
             print(e)
             return []
+
+    def _generate_inputs(self, texts: List[str]):
+        if os.getenv("HARDWARE") == "JETSON_NANO":
+            encoded_batch = self.tokenizer.encode_batch(texts)
+
+            input_ids = np.array([enc.ids[:self.max_length] + [0] * (self.max_length - len(enc.ids)) for enc in encoded_batch], dtype=np.int64)
+            attention_mask = np.array([[1] * min(len(enc.ids), self.max_length) + [0] * (self.max_length - len(enc.ids)) for enc in encoded_batch], dtype=np.int64)
+            token_type_ids = np.zeros_like(input_ids, dtype=np.int64)
+
+            inputs = {
+                "input_ids": input_ids,
+                "attention_mask": attention_mask,
+                "token_type_ids": token_type_ids
+            }
+
+        else:
+            inputs = self.tokenizer(texts,
+                                    padding="max_length",
+                                    truncation=True,
+                                    max_length=self.max_length,
+                                    return_tensors="np")
+            inputs={name: inputs[name].astype(np.int64) for name in self.input_names}
+
+        return inputs
 
     
 if __name__ == "__main__":

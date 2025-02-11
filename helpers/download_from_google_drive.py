@@ -3,8 +3,10 @@ from googleapiclient.http import MediaIoBaseDownload
 from google.oauth2 import service_account
 
 from dotenv import load_dotenv
-
-import torch
+try:
+    import torch
+except:
+    None
 
 import os
 import json
@@ -26,10 +28,10 @@ class DownloadFromGoogleDrive():
         credentials = service_account.Credentials.from_service_account_info(credential_info)
         self._service = build('drive', 'v3', credentials=credentials)
 
-        self._do_not_download = ['dataset-backup', 'comment_onnx', 'nickname_onnx']
+        self._do_not_download = ['dataset-backup']
         if not test_mode:
             if torch.cuda.is_available():
-                self._do_not_download.extend(['comment_quantize', 'nickname_quantize'])
+                self._do_not_download.extend(['comment_onnx', 'nickname_onnx'])
             else:
                 self._do_not_download.extend(['comment_model', 'nickname_model'])
 
