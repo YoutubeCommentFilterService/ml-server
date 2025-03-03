@@ -14,8 +14,3 @@ try:
     from .onnx_classification_model import ONNXClassificationModel
 except ImportError:
     raise ImportError('plz install onnxruntime(-gpu)')
-
-try:
-    from .tokenizer import Tokenizer
-except ImportError:
-    raise ImportError('singleton tokenizer load failed...')
