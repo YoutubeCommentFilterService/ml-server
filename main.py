@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from dotenv import load_dotenv
 import pandas as pd
 
@@ -10,7 +10,7 @@ import traceback
 import unicodedata
 
 import torch
-from helpers import TransformerClassificationModel, GoogleDriveHelper, Tokenizer
+from helpers import TransformerClassificationModel, GoogleDriveHelper
 
 do_not_download_list = ['dataset-backup']
 
@@ -29,11 +29,6 @@ helper = GoogleDriveHelper(project_root_dir=project_root_dir,
                            drive_root_folder_name='comment-filtering')
 if not os.path.exists('./model'):
     helper.download_all_files()
-
-try:
-    tokenizer = Tokenizer().get_tokenizer()
-except ImportError:
-    raise ImportError('plz install transformers package')
 
 if torch.cuda.is_available():
     comment_model = TransformerClassificationModel(model_type="comment")
@@ -71,8 +66,8 @@ class PredictResponse(BaseModel):
     comment_categories: List[str]
 
 async def startup():
-    nickname_model.load(tokenizer=tokenizer)
-    comment_model.load(tokenizer=tokenizer)
+    nickname_model.load()
+    comment_model.load()
 
 async def shutdown():
     nickname_model.unload()
@@ -165,8 +160,11 @@ def replace_regex_predict_data(df: pd.DataFrame):
     df['comment'] = df['comment']\
         .str.replace(r'@{1,2}[A-Za-z0-9가-힣\_\-\.]+', '[TAG]', regex=True)\
         .str.replace(r'#[A-Za-z0-9ㄱ-ㅎㅏ-ㅣ가-힣\_\-\.]+', '[HASH_TAG]', regex=True)\
+        .str.replace('¡', '!').str.replace('¿', '?')\
         .str.replace(r'([👇✋👍])', '[THUMB]', regex=True)\
-        .str.replace(r'([➡⬇↗↘↖↙→←↑↓⇒]|[\-\=]+>|<[\-\=]+)', '[ARROW]', regex=True)
+        .str.replace(r'([➡⬇↗↘↖↙→←↑↓⇒]|[\-\=]+>|<[\-\=]+)', '[ARROW]', regex=True)\
+        .str.replace(r'[💚💛🩷🩶💗💖❤🩵🖤💘♡♥🧡🔥💕️🤍💜🤎💙]', '[HEART]', regex=True)\
+        .str.replace(r'🎉', '[CONGRAT]', regex=True)
     # 쓸데없이 많은 문장부호 제거
     df['comment'] = df['comment']\
         .str.replace(r'([^\s])[.,](?=\S)', r'\1', regex=True)\
@@ -190,8 +188,14 @@ def replace_regex_predict_data(df: pd.DataFrame):
     df['comment'] = df['comment'].str.strip()
     df['comment'] = df['comment'].fillna('[EMPTY]')
 
+import asyncio
+async def predict_process(nicknames: List[str], comments: List[str]) -> Tuple[PredictResult, PredictResult]: # TODO: 이름 변경하기
+    nickname_result = nickname_model.predict(nicknames)
+    comment_result = comment_model.predict(comments)
+    return nickname_result, comment_result
+
 @app.post("/predict")
-def predict_batch(data: PredictRequest):
+async def predict_batch(data: PredictRequest):
     print('predict request accepted...')
     try:
         items = data.items
@@ -204,8 +208,9 @@ def predict_batch(data: PredictRequest):
         comments = df['comment'].tolist()
 
         start = time.time()
-        nickname_outputs, nickname_categories = nickname_model.predict(nicknames)
-        comment_outputs, comment_categories = comment_model.predict(comments)
+        # nickname_outputs, nickname_categories = nickname_model.predict(nicknames)
+        # comment_outputs, comment_categories = comment_model.predict(comments)
+        (nickname_outputs, nickname_categories), (comment_outputs, comment_categories) = await predict_process(nicknames, comments)
         print(f"predict len: {len(items)}, time: {time.time() - start}")
 
         print(len(items), len(comment_outputs), len(nickname_outputs))
@@ -236,9 +241,8 @@ def predict_batch(data: PredictRequest):
 def update_dataset():
     try:
         helper.download_all_files()
-        tokenizer = Tokenizer().reload_tokenizer()
-        nickname_model.reload(tokenizer)
-        comment_model.reload(tokenizer)
+        nickname_model.reload()
+        comment_model.reload()
     except Exception as e:
         return {
             'status': 'error',
