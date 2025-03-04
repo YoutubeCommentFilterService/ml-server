@@ -26,12 +26,12 @@ class TransformerClassificationModel:
 
     def load(self):
         try:
-            if self.model:
+            if self.model is not None:
                 return
             
             self.generate_label_array()
             
-            self._raise_file_not_fount(self.model_path)
+            self._raise_file_not_found(self.model_path)
             self.model=AutoModelForSequenceClassification.from_pretrained(self.model_path)
 
             self.model.to(self.device)
@@ -55,12 +55,15 @@ class TransformerClassificationModel:
         self.load()
 
     def generate_label_array(self):
-        self._raise_file_not_fount(self.dataset_path)
+        self._raise_file_not_found(self.dataset_path)
+        target_column = f"{self.model_type}_class"
 
-        data=pd.read_csv(self.dataset_path, usecols=[f"{self.model_type}_class"])
-        self.label_array=data[f"{self.model_type}_class"].dropna().unique()
+        data=pd.read_csv(self.dataset_path, 
+                         usecols=[target_column],
+                         dtype={target_column: str})
+        self.label_array=data[target_column].dropna().unique().tolist()
 
-    def _raise_file_not_fount(self, path):
+    def _raise_file_not_found(self, path):
         if not os.path.exists(path):
             raise FileNotFoundError(f"file not found at {path}")
     
@@ -69,33 +72,27 @@ class TransformerClassificationModel:
             raise RuntimeError("Model is not loaded")
         
         tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_path)
+        tokenizer.padding_side = 'right'
         
         if isinstance(texts, str):
             texts = [texts]
 
         batch_size = 16
 
-        short_texts = []
-        long_texts = []
-
         predict_as_long_text_border_length = 300
-
-        for idx, text in enumerate(texts):
-            if len(text) <= predict_as_long_text_border_length:
-                short_texts.append([idx,text])
-            else:
-                long_texts.append([idx,text])
+        short_texts = [[idx, text] for idx, text in enumerate(texts) if len(text) <= predict_as_long_text_border_length]
+        long_texts = [[idx, text] for idx, text in enumerate(texts) if len(text) > predict_as_long_text_border_length]
 
         all_predictions = [None] * len(texts)
 
         def predict_short_texts(texts: List[Union[int, str]]):
             origin_indicies, batch_texts = zip(*texts)
-            tokens = tokenizer(list(batch_texts),
-                                    return_tensors="pt",
-                                    padding=True,
-                                    truncation=True,
-                                    padding_side="right",
-                                    max_length = self.max_token_length)
+            tokens = tokenizer(batch_texts,
+                               return_tensors="pt",
+                               padding=True,
+                               truncation=True,
+                               max_length = self.max_token_length)
+            
             model_inputs = {key: val.to(self.device) for key, val in tokens.items()}
 
             with torch.no_grad():
@@ -106,8 +103,6 @@ class TransformerClassificationModel:
 
             for origin_index, predict_index, prob in zip(origin_indicies, predict_class_indicies, probs):
                 all_predictions[origin_index] = (self.label_array[predict_index], [ round(p, 2) for p in prob.tolist() ])
-
-            torch.cuda.empty_cache()
         
         # 짧은 문장은 배치처리하여 추론
         # 짧은 문장도 문장별로 추론해야할까?
@@ -119,20 +114,14 @@ class TransformerClassificationModel:
         torch.cuda.empty_cache()
 
 
-        def predict_long_texts(inputs, local_indicies):
+        def predict_long_texts(inputs, origin_indicies):
             def pad_tensor(tensors: List[DefaultDict[str, List[torch.Tensor]]]) -> Dict[str, torch.Tensor]:
-                keys = list(tensors[0].keys())
-                max_length = max(
-                    max(len(tensor) for tensor in d_dict[keys[0]]) 
-                    for d_dict in tensors
-                )
-                
-                # tensor.pad에서, 1차원 tensor의 경우에는 (left_pad, right_pad)를 의미한다.
-                # 즉 left_pad는 왼쪽에 추가할 개수, right_pad는 오른쪽에 추가할 개수이다.
+                temp_max_length = max(len(d_dict[key]) for d_dict in tensors for key in d_dict.keys())
                 return {
                     key: torch.stack([
-                            F.pad(tensor, (0, max_length - len(tensor)), mode='constant', value=tokenizer.pad_token_id if key == 'input_ids' else 0) for d_dict in tensors for tensor in d_dict[key]
-                        ]) for key in keys
+                        F.pad(tensor, (0, temp_max_length - len(tensor)), mode='constant', value=tokenizer.pad_token_id if key == 'input_ids' else 0)
+                        for d_dict in tensors for tensor in d_dict[key]
+                    ]) for key in tensors[0].keys()
                 }
 
             padded = pad_tensor(inputs)
@@ -140,32 +129,21 @@ class TransformerClassificationModel:
 
             with torch.no_grad():
                 outputs = self.model(**model_inputs)
-                probs = F.softmax(outputs.logits, dim=1)
-                predicted_class_indicies = torch.argmax(outputs.logits, dim=1).tolist()
+
+            probs = F.softmax(outputs.logits, dim=1)
+            predicted_class_indicies = torch.argmax(outputs.logits, dim=1).tolist()
             
-            for local_idx, pred_idx, prob in zip(local_indicies, predicted_class_indicies, probs):
-                grouped_data[local_idx].append([pred_idx, prob])
+            for origin_idx, pred_class_idx, prob in zip(origin_indicies, predicted_class_indicies, probs):
+                grouped_data[origin_idx].append([pred_class_idx, prob])
 
         # 토큰 제한이 있다. 512개. 따라서 더 줄이는 방법이 필요...
         # .?!^ 단위로 나누고 이걸 토크나이징 하는게 나을지도...?
-        def calculate_token_length(text: str):
-            def process_token(tokens, start_index: int, end_index: int):
-                result = defaultdict(list)
-                batched_length = []
-                for key in tokens:
-                    batched = tokens[key][0][start_index:end_index]
-                    batched_length.append(len(batched))
-                    result[key].append(batched)
-
-                return result, batched_length
-
+        def calculate_token_length(text: str) -> Tuple[DefaultDict[str, List[torch.Tensor]], List[int]]:
             token_collapse_length = 20
 
-            splitted_text = re.split(r'([.,!?^~]{2,}|[.!?~])(?=\s)', text)
-            merged_sentences = []
-            for i in range(0, len(splitted_text)-1, 2):
-                merged_sentences.append(splitted_text[i].strip() + splitted_text[i+1].strip())
-
+            splitted_text = re.split(r'([.,!?\^~]{2,}|[.!?~])(?=\s)', text)
+            merged_sentences = [splitted_text[i].strip() + splitted_text[i+1].strip()
+                                for i in range(0, len(splitted_text)-1, 2)]
             if len(splitted_text) % 2 != 0:
                 merged_sentences.append(splitted_text[-1].strip())
 
@@ -174,64 +152,69 @@ class TransformerClassificationModel:
 
             for sentence in merged_sentences:
                 tokens = tokenizer(sentence, return_tensors="pt")
-                token_length = len(tokens['input_ids'][0])
+                token_length = tokens['input_ids'][0].size(0)
 
                 cur_token_idx = 0
                 while cur_token_idx < token_length:
                     # 두 값의 차이가 {{ token_collapse_length }} 초과라면 현재 문장이 유의미한 문장임을 암시
                     # 그것이 아니라면 유의미하지 않음 -> 유의미한 전 토큰을 가져와서 토큰화
                     if (token_length - cur_token_idx) > token_collapse_length:
-                        local_result, batched_lengths = process_token(tokens, 
-                                                                      cur_token_idx,
-                                                                      cur_token_idx + self.max_token_length)
+                        start_idx = cur_token_idx
+                        end_idx = min(cur_token_idx + self.max_token_length, token_length)
                         cur_token_idx = cur_token_idx + self.max_token_length - token_collapse_length
                     else:
-                        local_result, batched_lengths = process_token(tokens, 
-                                                                      token_length - self.max_token_length,
-                                                                      self.max_token_length)
+                        start_idx = token_length - self.max_token_length
+                        end_idx = token_length
                         cur_token_idx = token_length # 종료조건 활성화
+
+                    local_result = {key: tokens[key][0][start_idx:end_idx] for key in tokens}
+                    batched_token_length = [len(local_result[key]) for key in tokens][0]
                 
-                    sentence_lengths.append(batched_lengths)
+                    sentence_lengths.append(batched_token_length)
                     for key in tokens:
-                        tensor_result[key].extend(local_result[key])
+                        tensor_result[key].append(local_result[key])
 
             return tensor_result, sentence_lengths
 
         # 긴 문장은 토큰별로 추론
-        local_sum = 0
+        tensor_counter = 0
         inputs = []
-        local_indicies = []
+        origin_indicies = []
         grouped_data = defaultdict(list)
         for loop_idx, value in enumerate(long_texts):
-            idx, text = value
+            origin_idx, text = value
             tensors, tensor_lengths = calculate_token_length(text)
+            ## tensor_lengths
+            #### [47, 26, 47, 26, 47, 26, 47, 26, 47, 26, 47, 26]
+            #### 각 tensor 토큰의 길이를 반환. 가중치를 이걸 이용해서 계산하려고 했는데... 조금 힘들것같다
             
             inputs.append(tensors)
-            local_indicies.extend([idx] * len(tensor_lengths))
-            local_sum = local_sum + len(tensor_lengths)
+            origin_indicies.extend([origin_idx] * len(tensor_lengths))
+            tensor_counter = tensor_counter + len(tensor_lengths)
 
-            if local_sum > batch_size:
-                predict_long_texts(inputs, local_indicies)
+            if tensor_counter >= batch_size:
+                predict_long_texts(inputs, origin_indicies)
 
-                inputs = []
-                local_indicies = []
-                local_sum = 0
+                inputs.clear()
+                origin_indicies.clear()
+                tensor_counter = 0
 
             if (loop_idx+1) % (4*batch_size) == 0:
                 torch.cuda.empty_cache()
 
         if len(inputs) != 0:
-            predict_long_texts(inputs, local_indicies)
+            predict_long_texts(inputs, origin_indicies)
             torch.cuda.empty_cache()
 
         for key, value in grouped_data.items():
             probs = torch.stack([ prob for _, prob in value ])
             probs_mean = probs.mean(dim=0)
 
-            all_predictions[key] = (
-                self.label_array[probs_mean.argmax()], 
-                [ round(p, 2) for p in probs_mean.tolist() ]
-            )
+            max_prob_index = probs_mean.argmax()
+            rounded_probs = (probs_mean * 100).round() / 100
+
+            all_predictions[key] = (self.label_array[max_prob_index], 
+                                    rounded_probs.tolist())
             
         return all_predictions, self.label_array
 
