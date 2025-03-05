@@ -5,11 +5,10 @@ from google.oauth2 import service_account
 from dotenv import load_dotenv
 
 import os
-import json
 import io
 from tqdm import tqdm
 from pathlib import Path
-from typing import Any, Tuple, Optional
+from typing import Any, Tuple, Union
 
 class GoogleDriveHelper():
     def __init__(self, project_root_dir:str, 
@@ -181,7 +180,6 @@ class GoogleDriveHelper():
             if not self.is_exists(folder_name=folder_name):
                 self.create_folder(folder_name=folder_name, parent_folder_name=parent_folder_name)
             parent_folder_name = folder_name
-
         try:
             filename = relative_path.parts[-1]
             with open(file_path, 'rb') as file:
@@ -200,8 +198,6 @@ class GoogleDriveHelper():
                                                 filename=filename,
                                                 file_size=file_path.stat().st_size)
             
-            print(upload_type)
-            
             if upload_type == 'c':
                 self.directory_struct[parent_folder_name][filename] = {'id': file_id,
                                                                         'parent_id': self.directory_struct[parent_folder_name]['id']}
@@ -218,7 +214,7 @@ class GoogleDriveHelper():
         file_id = self.directory_struct[parent_folder_name][filename].get("id")
         return self._file_service.update(fileId=file_id, media_body=media), 'u'
     
-    def _upload_with_progress(self, request:Any, filename:str, file_size:int) -> Optional[str]:
+    def _upload_with_progress(self, request:Any, filename:str, file_size:int) -> Union[str, None]:
         with tqdm(total=file_size, unit='B', unit_scale=True, desc=f'Upload - {filename}') as pbar:
             response = None
             while response is None:
@@ -228,14 +224,14 @@ class GoogleDriveHelper():
         return response.get('id', None)
 
     # ============================================ download file ============================================
-    def download_all_files(self, specific_file:Optional[str] = None):
+    def download_all_files(self, specific_file:Union[str, None]=None):
         print('download starts...')
         self._download_recursive(folder_id=self.directory_struct[self.drive_root_folder_name].get('id'),
                                  curr_local_path=os.path.join(self.project_root_dir, 'model'),
                                  specific_file=specific_file)
         print('download finished!')
 
-    def _download_recursive(self, folder_id:str, curr_local_path:str, specific_file: Optional[str] = None):
+    def _download_recursive(self, folder_id:str, curr_local_path:str, specific_file:Union[str, None]=None):
         if not os.path.exists(curr_local_path):
             os.mkdir(curr_local_path)
 
@@ -243,17 +239,18 @@ class GoogleDriveHelper():
         for item in items:
             if item.get("mimeType") == self.mime_type.get('folder'): # folder
                 self._download_recursive(folder_id=item.get('id'), 
-                                         curr_local_path=os.path.join(curr_local_path, item.get('name')))
+                                         curr_local_path=os.path.join(curr_local_path, item.get('name')),
+                                         specific_file=specific_file)
             else: # file
                 self._download_file(file=item,
                                     curr_local_path=curr_local_path,
                                     specific_file=specific_file)
 
-    def _download_file(self, file:dict, curr_local_path:str, specific_file:Optional[str] = None):
+    def _download_file(self, file:dict, curr_local_path:str, specific_file:Union[str, None]=None):
         file_id = file.get('id')
         filename = file.get('name')
 
-        if specific_file and filename != specific_file:
+        if specific_file is not None and filename != specific_file:
             return
 
         request = self._file_service.get_media(fileId=file_id)
@@ -285,7 +282,7 @@ class GoogleDriveHelper():
             response = self._file_service.list(
                 q=f"'{folder_id}' in parents",
                 spaces='drive',
-                fields='nextPageToken, files(id, name, mimeType)',
+                fields='nextPageToken, files(id, name, mimeType, parentId)',
                 pageToken=page_token
             ).execute()
             results.extend(response.get("files", []))
@@ -299,13 +296,42 @@ class GoogleDriveHelper():
     def delete_file(self, file_id:str):
         self._file_service.delete(fileId=file_id).execute()
 
+    def delete_folder(self, folder_id: str, force_delete: bool = False):
+        page_token = None
+        file_and_folders = []
+        while True:
+            response = self._file_service.list(
+                q=f"'{folder_id}' in parents",
+                spaces='drive',
+                fields='nextPageToken, files(id, name, mimeType)',
+                pageToken=page_token
+            ).execute()
+            file_and_folders.extend(response.get('files', []))
+            if (page_token := response.get('nextPageToken', None)) is None:
+                break
+
+        for item in file_and_folders:
+            if item.get('mimeType') == self.mime_type.get('folder'):
+                self.delete_folder(item.get('id'))
+            else:
+                if force_delete:
+                    self._file_service.delete(fileId=item.get('id')).execute()
+                else:
+                    self.move_to_trash(item.get('id'))
+
+        folder_name = self._file_service.get(fileId=folder_id, fields='name').execute().get('name')
+        if force_delete:
+            self._file_service.delete(fileId=folder_id).execute()
+        else:
+            self.move_to_trash(folder_id)
+        self.directory_struct.pop(folder_name)
+
     def move_to_trash(self, file_id:str):
         body_value = {'trashed': True}
         self._file_service.update(fileId=file_id, body=body_value).execute()
 
     # ============================================ permission ============================================
     def _change_permission(self, file_id:str):
-        # permission_owner = {'type': 'user', 'role': 'owner', 'emailAddress': 'blue.h.sh.0.0@gmail.com'}
         permission_writer = {'type': 'user', 'role': 'writer', 'emailAddress': self.google_drive_owner_email}
         permission_reader = {'type': 'anyone', 'role': 'reader'}
 
@@ -323,7 +349,7 @@ class GoogleDriveHelper():
 if __name__ == "__main__":
     try:
         curr_dir = os.path.dirname(os.path.abspath(__file__))
-        root_dir = os.path.abspath(os.path.join(curr_dir, '..'))
+        root_dir = os.path.abspath(curr_dir)
         load_dotenv(os.path.join(root_dir, 'env', '.env'))
 
         google_client_key_path = os.path.join(root_dir, 'env', 'ml-server-key.json')
@@ -341,6 +367,26 @@ if __name__ == "__main__":
                                        test_mode=True)
         
         # downloader.print_directory_metadata()
+
+        # downloader.upload_all_files()
+        
+        downloader.print_directory_metadata()
+
+        force_delete_flag=True
+        downloader.delete_folder('1ije26xN9QM_geAmymNFKIO1gE6nnidVX', force_delete_flag)
+
+        
+        downloader.print_directory_metadata()
+        # force_delete_flag=True
+        # delete_target_list = ['1EPNDi3SFqXx8mzJWQlG_35mHGcUNpXu-', '1JxJls3lfHCda3X7AcozXqE_EBA8LPVb_', '18hpiV4xS-DbX4HSzyuuPqD9BuqVhlw7d', '1A0zN8HyqWXX8_NrmIRgFV9cq9Q3NZvRP', '1xmVE2OLNmB8aDePB2FvrUw7xQcmK8NEv', '1VtdlbkU-00cicCNUgBcZgpo5z8bAr0lQ', '1RHuW4cW2IdThfT6PjnqiDm4ojPHGpi1r']
+        # for target in delete_target_list:
+        #     downloader.delete_folder(target, force_delete_flag)
+        # file_ids = ['100MP4h6eLWq8iOEizmz-qgjOP8bK02Gn', '1F2UhFQVB1MLJmpvQld3yZF8TrQ4OxaKg', '1f02rDOaUUL9EIO4d7Ka6sD6qx3x1JNnf', ]
+        # for id in 
+
+        # downloader._change_permission('1VtdlbkU-00cicCNUgBcZgpo5z8bAr0lQ')
+        # downloader._change_permission('1RHuW4cW2IdThfT6PjnqiDm4ojPHGpi1r')
+        
 
         # print(downloader.is_exists(folder_name="nickname_model",
         #                                    filename="model.safetensors"))
