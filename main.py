@@ -65,7 +65,22 @@ class PredictResponse(BaseModel):
     nickname_categories: List[str]
     comment_categories: List[str]
 
+class PredictClassResponse(BaseModel):
+    nickname_predict_class: List[str]
+    comment_predict_class: List[str]
+
+
+nickname_predict_class = None
+comment_predict_class = None
+
 async def startup():
+    global nickname_predict_class, comment_predict_class
+    classes = pd.read_csv('./model/dataset.csv', usecols=['nickname_class', 'comment_class'])
+    nickname_predict_class = classes['nickname_class'].dropna().unique().tolist()
+    comment_predict_class = classes['comment_class'].dropna().unique().tolist()
+
+    del classes
+
     nickname_model.load()
     comment_model.load()
 
@@ -194,6 +209,12 @@ async def predict_process(nicknames: List[str], comments: List[str]) -> Tuple[Pr
     comment_result = comment_model.predict(comments)
     return nickname_result, comment_result
 
+@app.get("/predict-category")
+async def get_predict_category():
+    response = PredictClassResponse(nickname_predict_class=nickname_predict_class, 
+                                    comment_predict_class=comment_predict_class)
+    return response
+
 @app.post("/predict")
 async def predict_batch(data: PredictRequest):
     print('predict request accepted...')
@@ -201,33 +222,36 @@ async def predict_batch(data: PredictRequest):
         items = data.items
         response_data = []
 
-        df = pd.DataFrame([{'nickname': item.nickname, 'comment': item.comment} for item in items])
-        replace_regex_predict_data(df)
+        nickname_categories, comment_categories = nickname_predict_class, comment_predict_class
 
-        nicknames = df['nickname'].tolist()
-        comments = df['comment'].tolist()
+        if len(items) > 0:
+            df = pd.DataFrame([{'nickname': item.nickname, 'comment': item.comment} for item in items])
+            replace_regex_predict_data(df)
 
-        start = time.time()
-        # nickname_outputs, nickname_categories = nickname_model.predict(nicknames)
-        # comment_outputs, comment_categories = comment_model.predict(comments)
-        (nickname_outputs, nickname_categories), (comment_outputs, comment_categories) = await predict_process(nicknames, comments)
-        print(f"predict len: {len(items)}, time: {time.time() - start}")
+            nicknames = df['nickname'].tolist()
+            comments = df['comment'].tolist()
 
-        print(len(items), len(comment_outputs), len(nickname_outputs))
+            start = time.time()
+            # nickname_outputs, nickname_categories = nickname_model.predict(nicknames)
+            # comment_outputs, comment_categories = comment_model.predict(comments)
+            (nickname_outputs, nickname_categories), (comment_outputs, comment_categories) = await predict_process(nicknames, comments)
+            print(f"predict len: {len(items)}, time: {time.time() - start}")
 
-        index = 0
-        for item, comment_output, nickname_output in zip(items, comment_outputs, nickname_outputs):
-            if nickname_output is None:
-                print(f'\tnickname{index} = {nickname_output}, {item}')
-            if comment_output is None:
-                print(f'\tcomment{index} = {comment_output}, {item}')
-            index = index + 1
-            
-            response_data.append(PredictResult(id=item.id, 
-                                               nickname_predicted=nickname_output[0],
-                                               nickname_predicted_prob=nickname_output[1],
-                                               comment_predicted=comment_output[0],
-                                               comment_predicted_prob=comment_output[1]))
+            print(len(items), len(comment_outputs), len(nickname_outputs))
+
+            index = 0
+            for item, comment_output, nickname_output in zip(items, comment_outputs, nickname_outputs):
+                if nickname_output is None:
+                    print(f'\tnickname{index} = {nickname_output}, {item}')
+                if comment_output is None:
+                    print(f'\tcomment{index} = {comment_output}, {item}')
+                index = index + 1
+                
+                response_data.append(PredictResult(id=item.id, 
+                                                nickname_predicted=nickname_output[0],
+                                                nickname_predicted_prob=nickname_output[1],
+                                                comment_predicted=comment_output[0],
+                                                comment_predicted_prob=comment_output[1]))
         
         # 결과 반환
         return PredictResponse(items=response_data, model_type=model_type, nickname_categories=nickname_categories, comment_categories=comment_categories)
