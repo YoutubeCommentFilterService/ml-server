@@ -10,7 +10,7 @@ import traceback
 import unicodedata
 
 import torch
-from helpers import TransformerClassificationModel, GoogleDriveHelper
+from helpers import TransformerClassificationModel, S3Helper
 
 do_not_download_list = ['dataset-backup']
 
@@ -21,14 +21,16 @@ google_drive_owner_email = os.getenv("GOOGLE_DRIVE_OWNER_EMAIL")
 do_not_download_list = ['dataset-backup']
 google_client_key_path = os.path.join(project_root_dir, 'env', 'ml-server-key.json')
 
-helper = GoogleDriveHelper(project_root_dir=project_root_dir,
-                           google_client_key_path=google_client_key_path,
-                           google_drive_owner_email=google_drive_owner_email,
-                           do_not_download_list=do_not_download_list,
-                           local_target_root_dir_name='model',
-                           drive_root_folder_name='comment-filtering')
+# helper = GoogleDriveHelper(project_root_dir=project_root_dir,
+#                            google_client_key_path=google_client_key_path,
+#                            google_drive_owner_email=google_drive_owner_email,
+#                            do_not_download_list=do_not_download_list,
+#                            local_target_root_dir_name='model',
+#                            drive_root_folder_name='comment-filtering')
+helper = S3Helper(project_root_dir, 'youtube-comment-predict')
 if not os.path.exists('./model'):
-    helper.download_all_files()
+    helper.download()
+    # helper.download_all_files()
 
 if torch.cuda.is_available():
     comment_model = TransformerClassificationModel(model_type="comment")
@@ -232,8 +234,6 @@ async def predict_batch(data: PredictRequest):
             comments = df['comment'].tolist()
 
             start = time.time()
-            # nickname_outputs, nickname_categories = nickname_model.predict(nicknames)
-            # comment_outputs, comment_categories = comment_model.predict(comments)
             (nickname_outputs, nickname_categories), (comment_outputs, comment_categories) = await predict_process(nicknames, comments)
             print(f"predict len: {len(items)}, time: {time.time() - start}")
 
@@ -263,10 +263,12 @@ async def predict_batch(data: PredictRequest):
     
 @app.patch("/update")
 def update_dataset():
+    print('update start!')
     try:
-        helper.download_all_files()
+        helper.download()
         nickname_model.reload()
         comment_model.reload()
+        return 'update model succeed'
     except Exception as e:
         return {
             'status': 'error',
