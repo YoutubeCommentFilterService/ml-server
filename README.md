@@ -25,7 +25,22 @@
   > pip install -r requirements_x86-64.txt
 
 - arm64 환경
+
   > pip install -r requirements_arm64.txt
+
+- 직접 설치
+  > 서버: fastapi uvicorn[standard]
+  > 모델 다운로드: boto3 google-api-python-client tqdm
+  > 모델 로더: transformers
+
+## tegra, 즉 jetson 시리즈에서 구동
+
+아래의 내용을 추가해야 sudo를 입력하지 않아도 설정을 바꿀 수 있습니다!
+
+```bash
+// /etc/sudoers
+{{ username }} ALL=NOPASSWD: /usr/sbin/nvpmodel
+```
 
 # Helper
 

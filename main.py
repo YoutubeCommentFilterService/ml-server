@@ -1,8 +1,11 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional, Tuple
 from dotenv import load_dotenv
 import pandas as pd
+    
+import time
 
 import re
 import os
@@ -46,6 +49,16 @@ else:
 
 app = FastAPI()
 
+# origins = [
+#     "https://api.spampredict.store",
+#     "https://spampredict.store"
+# ]
+# app.add_middleware(CORSMiddleware,
+#                    allow_origins=origins,
+#                    allow_credentials=True,
+#                    allow_methods=["*"],
+#                    allow_headers=["*"])
+
 class PredictItem(BaseModel):
     id: str
     nickname: str
@@ -74,9 +87,41 @@ class PredictClassResponse(BaseModel):
 
 nickname_predict_class = None
 comment_predict_class = None
+is_on_tegra = False
+power_mode = {"max": None, "min": None}
+last_request_time = time.time()
+
+import subprocess
+import re
+import json
+
+def set_jetson_high_performance():
+    if not is_on_tegra:
+        return
+    try:
+        subprocess.run(['nvpmodel', '-m', power_mode['max']])
+    except Exception as e:
+        print(f"Error setting GPU to high performance: {e}")
+
+def set_jetson_idle():
+    if not is_on_tegra:
+        return
+    try:
+        subprocess.run(['nvpmodel', '-m', power_mode['min']])
+    except Exception as e:
+        print(f"Error setting GPU to idle: {e}")
+
+async def monitor_gpu_idle():
+    global last_request_time
+    check_time = 60
+    while True:
+        await asyncio.sleep(check_time)
+        if time.time() - last_request_time > check_time:
+            set_jetson_idle()  # GPU를 idle로 변경
+
 
 async def startup():
-    global nickname_predict_class, comment_predict_class
+    global nickname_predict_class, comment_predict_class, is_on_tegra, power_mode
     classes = pd.read_csv('./model/dataset.csv', usecols=['nickname_class', 'comment_class'])
     nickname_predict_class = classes['nickname_class'].dropna().unique().tolist()
     comment_predict_class = classes['comment_class'].dropna().unique().tolist()
@@ -85,6 +130,24 @@ async def startup():
 
     nickname_model.load()
     comment_model.load()
+
+    is_on_tegra = os.path.exists('/etc/nvpmodel.conf')
+    if is_on_tegra:
+        result = subprocess.run('jetson_release | grep Module', shell=True, capture_output=True, text=True)
+        output = result.stdout.strip()
+
+        clean_output = re.sub(r'\x1b\[[0-9;]*m', '', output)
+        
+        module_info = clean_output.split(": ")[-1]
+
+        with open("./tegra_powers.json", "r") as f:
+            power_modes = json.load(f)
+        
+        power_mode["max"] = power_modes[module_info]["max"]
+        power_mode["min"] = power_modes[module_info]["min"]
+
+        asyncio.create_task(monitor_gpu_idle())
+        set_jetson_idle()
 
 async def shutdown():
     nickname_model.unload()
@@ -99,8 +162,6 @@ def normalize_unicode_text(text: str) -> str:
 
 app.add_event_handler("startup", startup)
 app.add_event_handler("shutdown", shutdown)
-    
-import time
 
 from typing import Union
 def normalize_tlettak_font(text: str, 
@@ -219,7 +280,10 @@ async def get_predict_category():
 
 @app.post("/predict")
 async def predict_batch(data: PredictRequest):
+    global last_request_time
     print('predict request accepted...')
+    
+    last_request_time = time.time()
     try:
         items = data.items
         response_data = []
