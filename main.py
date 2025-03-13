@@ -95,11 +95,13 @@ import subprocess
 import re
 import json
 
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 def set_jetson_high_performance():
     if not is_on_tegra:
         return
     try:
-        subprocess.run(['nvpmodel', '-m', power_mode['max']])
+        subprocess.run(['sudo', 'nvpmodel', '-m', power_mode['max']])
     except Exception as e:
         print(f"Error setting GPU to high performance: {e}")
 
@@ -107,7 +109,7 @@ def set_jetson_idle():
     if not is_on_tegra:
         return
     try:
-        subprocess.run(['nvpmodel', '-m', power_mode['min']])
+        subprocess.run(['sudo', 'nvpmodel', '-m', power_mode['min']])
     except Exception as e:
         print(f"Error setting GPU to idle: {e}")
 
@@ -284,6 +286,7 @@ async def predict_batch(data: PredictRequest):
     print('predict request accepted...')
     
     last_request_time = time.time()
+    set_jetson_high_performance()
     try:
         items = data.items
         response_data = []
