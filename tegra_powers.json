@@ -1,6 +1,6 @@
 {
     "NVIDIA Jetson Xavier NX": {
         "max": 8,
-        "min": 3
+        "min": 4
     }
 }
