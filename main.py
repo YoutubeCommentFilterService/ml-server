@@ -145,8 +145,8 @@ async def startup():
         with open("./tegra_powers.json", "r") as f:
             power_modes = json.load(f)
         
-        power_mode["max"] = power_modes[module_info]["max"]
-        power_mode["min"] = power_modes[module_info]["min"]
+        power_mode["max"] = str(power_modes[module_info]["max"])
+        power_mode["min"] = str(power_modes[module_info]["min"])
 
         asyncio.create_task(monitor_gpu_idle())
         set_jetson_idle()
