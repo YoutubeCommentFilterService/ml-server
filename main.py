@@ -37,7 +37,7 @@ if not os.path.exists('./model'):
 
 if torch.cuda.is_available():
     fp = os.getenv('FP')
-    fp = fp if fp is not None else 'fp16'
+    fp = fp if fp is not None else 'fp32'
     comment_model = TransformerClassificationModel(model_type="comment", quantize=fp)
     nickname_model = TransformerClassificationModel(model_type="nickname", quantize=fp)
 
