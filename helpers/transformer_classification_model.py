@@ -11,10 +11,11 @@ from typing import List, Union, Tuple, Dict, DefaultDict
 from collections import defaultdict
 
 class TransformerClassificationModel:
-    def __init__(self, model_type:str, base_model_path:str="./model"):
+    def __init__(self, model_type:str, base_model_path:str="./model", quantize:str='fp32'):
         self.model_type=model_type
+        self.quantize = quantize
 
-        self.model_path=os.path.join(base_model_path, f"{model_type}_model")
+        self.model_path=os.path.join(base_model_path, f"{model_type}_model" + ('_fp16' if quantize == 'fp16' else ''))
         self.tokenizer_path=os.path.join(base_model_path, f"tokenizer")
         self.dataset_path=os.path.join(base_model_path, 'dataset.csv')
 
@@ -77,7 +78,7 @@ class TransformerClassificationModel:
         if isinstance(texts, str):
             texts = [texts]
 
-        batch_size = 16
+        batch_size = 16 * 2 if self.quantize == 'fp16' else 1
 
         predict_as_long_text_border_length = 300
         short_texts = [[idx, text] for idx, text in enumerate(texts) if len(text) <= predict_as_long_text_border_length]
