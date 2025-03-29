@@ -2,5 +2,9 @@
     "NVIDIA Jetson Xavier NX": {
         "max": 8,
         "min": 4
+    },
+    "NVIDIA Jetson Orin Nano (Developer kit)": {
+        "max": 2,
+        "min": 0
     }
 }
