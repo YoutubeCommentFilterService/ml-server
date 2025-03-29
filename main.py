@@ -271,9 +271,12 @@ def replace_regex_predict_data(df: pd.DataFrame):
     df['comment'] = df['comment'].fillna('[EMPTY]')
 
 import asyncio
+
 async def predict_process(nicknames: List[str], comments: List[str]) -> Tuple[PredictResult, PredictResult]: # TODO: 이름 변경하기
-    nickname_result = nickname_model.predict(nicknames)
-    comment_result = comment_model.predict(comments)
+    nickname_result, comment_result = await asyncio.gather(
+        asyncio.to_thread(nickname_model.predict, nicknames),
+        asyncio.to_thread(comment_model.predict, comments),
+    )
     return nickname_result, comment_result
 
 @app.get("/predict-category")
