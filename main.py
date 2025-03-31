@@ -62,12 +62,10 @@ app = FastAPI()
 #                    allow_headers=["*"])
 
 class PredictItem(BaseModel):
-    id: str
     nickname: str
     comment: str
     
 class PredictResult(BaseModel):
-    id: str
     nickname_predicted: str
     nickname_predicted_prob: List[float]
     comment_predicted: str
@@ -319,11 +317,10 @@ async def predict_batch(data: PredictRequest):
                     print(f'\tcomment{index} = {comment_output}, {item}')
                 index = index + 1
                 
-                response_data.append(PredictResult(id=item.id, 
-                                                nickname_predicted=nickname_output[0],
-                                                nickname_predicted_prob=nickname_output[1],
-                                                comment_predicted=comment_output[0],
-                                                comment_predicted_prob=comment_output[1]))
+                response_data.append(PredictResult(nickname_predicted=nickname_output[0],
+                                                   nickname_predicted_prob=nickname_output[1],
+                                                   comment_predicted=comment_output[0],
+                                                   comment_predicted_prob=comment_output[1]))
         
         # 결과 반환
         return PredictResponse(items=response_data, model_type=model_type, nickname_categories=nickname_categories, comment_categories=comment_categories)
