@@ -1,9 +1,8 @@
 from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 from dotenv import load_dotenv
 import pandas as pd
+import redis
     
 import time
 
@@ -14,6 +13,8 @@ import unicodedata
 
 import torch
 from helpers import TransformerClassificationModel, S3Helper
+from schemes.fastapi_types import PredictItem,  PredictResult, PredictRequest, PredictResponse, PredictClassResponse
+from schemes.config import REDIS_PUBSUB_TEGRA_KEY, REDIS_PUBSUB_TEGRA_MAX_VALUE, REDIS_PUBSUB_UPDATE_KEY, REDIS_REQUEST_TIME_KEY
 
 do_not_download_list = ['dataset-backup']
 
@@ -24,16 +25,11 @@ google_drive_owner_email = os.getenv("GOOGLE_DRIVE_OWNER_EMAIL")
 do_not_download_list = ['dataset-backup']
 google_client_key_path = os.path.join(project_root_dir, 'env', 'ml-server-key.json')
 
-# helper = GoogleDriveHelper(project_root_dir=project_root_dir,
-#                            google_client_key_path=google_client_key_path,
-#                            google_drive_owner_email=google_drive_owner_email,
-#                            do_not_download_list=do_not_download_list,
-#                            local_target_root_dir_name='model',
-#                            drive_root_folder_name='comment-filtering')
+redis_client = redis.Redis()
+
 helper = S3Helper(project_root_dir, 'youtube-comment-predict')
 if not os.path.exists('./model'):
     helper.download()
-    # helper.download_all_files()
 
 if torch.cuda.is_available():
     fp = os.getenv('FP')
@@ -61,69 +57,36 @@ app = FastAPI()
 #                    allow_methods=["*"],
 #                    allow_headers=["*"])
 
-class PredictItem(BaseModel):
-    nickname: str
-    comment: str
-    
-class PredictResult(BaseModel):
-    nickname_predicted: str
-    nickname_predicted_prob: List[float]
-    comment_predicted: str
-    comment_predicted_prob: List[float]
-
-class PredictRequest(BaseModel):
-    items: List[PredictItem]
-
-class PredictResponse(BaseModel):
-    items: List[PredictResult]
-    model_type: Optional[str]
-    nickname_categories: List[str]
-    comment_categories: List[str]
-
-class PredictClassResponse(BaseModel):
-    nickname_predict_class: List[str]
-    comment_predict_class: List[str]
-
-
 nickname_predict_class = None
 comment_predict_class = None
-is_on_tegra = False
 power_mode = {"max": None, "min": None}
-last_request_time = time.time()
+is_idle = True
 
-import subprocess
 import re
-import json
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-def set_jetson_high_performance():
-    if not is_on_tegra:
-        return
-    try:
-        subprocess.run(['sudo', 'nvpmodel', '-m', power_mode['max']])
-    except Exception as e:
-        print(f"Error setting GPU to high performance: {e}")
+is_updating = False
+def subscribe_redis():
+    global is_updating
+    pubsub = redis_client.pubsub()
+    pubsub.subscribe(REDIS_PUBSUB_UPDATE_KEY)
 
-def set_jetson_idle():
-    if not is_on_tegra:
-        return
-    try:
-        subprocess.run(['sudo', 'nvpmodel', '-m', power_mode['min']])
-    except Exception as e:
-        print(f"Error setting GPU to idle: {e}")
+    for message in pubsub.listen():
+        print(message)
+        if message['channel'].decode('utf-8') == REDIS_PUBSUB_UPDATE_KEY and message['type'] == 'message':
+            while not is_idle:
+                time.sleep(1)
 
-async def monitor_gpu_idle():
-    global last_request_time
-    check_time = 60
-    while True:
-        await asyncio.sleep(check_time)
-        if time.time() - last_request_time > check_time:
-            set_jetson_idle()  # GPU를 idle로 변경
+            is_updating = True
+            nickname_model.reload()
+            comment_model.reload()
+            is_updating = False
 
+import threading
 
 async def startup():
-    global nickname_predict_class, comment_predict_class, is_on_tegra, power_mode
+    global nickname_predict_class, comment_predict_class, power_mode
     classes = pd.read_csv('./model/dataset.csv', usecols=['nickname_class', 'comment_class'])
     nickname_predict_class = classes['nickname_class'].dropna().unique().tolist()
     comment_predict_class = classes['comment_class'].dropna().unique().tolist()
@@ -133,23 +96,7 @@ async def startup():
     nickname_model.load()
     comment_model.load()
 
-    is_on_tegra = os.path.exists('/etc/nvpmodel.conf')
-    if is_on_tegra:
-        result = subprocess.run('jetson_release | grep Module', shell=True, capture_output=True, text=True)
-        output = result.stdout.strip()
-
-        clean_output = re.sub(r'\x1b\[[0-9;]*m', '', output)
-        
-        module_info = clean_output.split(": ")[-1]
-
-        with open("./tegra_powers.json", "r") as f:
-            power_modes = json.load(f)
-        
-        power_mode["max"] = str(power_modes[module_info]["max"])
-        power_mode["min"] = str(power_modes[module_info]["min"])
-
-        asyncio.create_task(monitor_gpu_idle())
-        set_jetson_idle()
+    threading.Thread(target=subscribe_redis, daemon=True).start()
 
 async def shutdown():
     nickname_model.unload()
@@ -168,8 +115,7 @@ app.add_event_handler("shutdown", shutdown)
 from typing import Union
 def normalize_tlettak_font(text: str, 
                            space_pattern: Union[str, re.Pattern] = r'[가-힣ㄱ-ㅎㅏ-ㅣa-zA-Z0-9]+[\s!?@.,❤]*', 
-                           search_pattern: Union[str, re.Pattern] = r'(\b\w\b)([\s!?@.,❤]+)(\b\w\b)',
-                           ) -> str:
+                           search_pattern: Union[str, re.Pattern] = r'(\b\w\b)([\s!?@.,❤]+)(\b\w\b)') -> str:
     if isinstance(space_pattern, str):
         space_pattern = re.compile(space_pattern)
     if isinstance(search_pattern, str):
@@ -285,11 +231,21 @@ async def get_predict_category():
 
 @app.post("/predict")
 async def predict_batch(data: PredictRequest):
-    global last_request_time
+    global is_idle, is_updating
+
+    async def keep_updating_redis():
+        while not is_idle:
+            redis_client.set(REDIS_REQUEST_TIME_KEY, time.time())
+            await asyncio.sleep(1)
+
+    while is_updating:
+        await asyncio.sleep(1)
     print('predict request accepted...')
+    is_idle = False
+
+    redis_client.publish(REDIS_PUBSUB_TEGRA_KEY, REDIS_PUBSUB_TEGRA_MAX_VALUE)
+    redis_update_task = asyncio.create_task(keep_updating_redis())
     
-    last_request_time = time.time()
-    set_jetson_high_performance()
     try:
         items = data.items
         response_data = []
@@ -324,19 +280,19 @@ async def predict_batch(data: PredictRequest):
         
         # 결과 반환
         return PredictResponse(items=response_data, model_type=model_type, nickname_categories=nickname_categories, comment_categories=comment_categories)
-
-    
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        is_idle = True
+        redis_update_task.cancel()
     
 @app.patch("/update")
 def update_dataset():
     print('update start!')
     try:
         helper.download()
-        nickname_model.reload()
-        comment_model.reload()
+        redis_client.publish(REDIS_PUBSUB_UPDATE_KEY, '')
         return 'update model succeed'
     except Exception as e:
         return {
