@@ -29,9 +29,10 @@
   > pip install -r requirements_arm64.txt
 
 - 직접 설치
-  > 서버: fastapi uvicorn[standard]
-  > 모델 다운로드: boto3 google-api-python-client tqdm
+  > 서버: fastapi, uvicorn[standard]
+  > 모델 다운로드: boto3, google-api-python-client, tqdm
   > 모델 로더: transformers
+  > 메시지큐: redis
 
 ## tegra, 즉 jetson 시리즈에서 구동
 
