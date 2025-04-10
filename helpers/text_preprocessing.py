@@ -1,12 +1,7 @@
-from math import floor
 import pandas as pd
 import unicodedata
 from typing import Union
 import re
-
-pattern_spacer = '=!?@'
-space_pattern = re.compile(r'[가-힣ㄱ-ㅎㅏ-ㅣa-zA-Z0-9:]+[\s!?@.,❤]*')
-pattern = re.compile(rf"[{pattern_spacer}]*(\w)([{pattern_spacer}\s.,❤]+)(\w)")
 
 def normalize_unicode_text(text: str) -> str:
     unicode_single_hangul_dict = {
@@ -90,7 +85,6 @@ def clean_nickname(df: pd.DataFrame):
     nickname_series = (
         df['nickname']
             .str.strip()
-            # .str.lower()
             .str.replace(r'^@', '', regex=True)
             .apply(lambda x: remove_if_hyphen_and_odd_word(x) if isinstance(x, str) else x)
     )
@@ -135,14 +129,6 @@ def set_default_nickname(df: pd.DataFrame):
         return nickname
 
     df['nickname'] = df['nickname'].apply(lambda x: _change(x) if isinstance(x, str) else x)
-    return df
-
-# 텍스트 기반 이모지 제거
-def clean_text_emojis(df: pd.DataFrame):
-    with open('../tokens/emojis.txt', 'r', encoding='utf-8') as f:
-        emojis = [line.strip() for line in f.readlines()]
-    emoji_pattern = '|'.join(map(re.escape, emojis))
-    df['comment'] = df['comment'].str.replace(emoji_pattern, '[TEXT_EMOJI]', regex=True)
     return df
 
 # 유니코드 정규화
@@ -254,7 +240,6 @@ def replace_structed_patterns(df: pd.DataFrame):
     for [pattern, token] in patterns:
         for p in pattern:
             df['comment'] = df['comment'].str.replace(p, token, regex=True)
-
     return df
 
 def replace_misc_patterns(df: pd.DataFrame):
@@ -272,7 +257,7 @@ def replace_misc_patterns(df: pd.DataFrame):
     return df
 
 def clean_duplicated_token(df: pd.DataFrame):
-    tags = ['TIMESTAMP', 'URL', 'EMAIL', 'TAG', 'HASH_TAG', 'THUMB', 'ARROW', 'TEXT_EMOJI', 'HEART', 'CONGRAT']
+    tags = ['TIMESTAMP', 'URL', 'EMAIL', 'TAG', 'HASH_TAG', 'THUMB', 'ARROW', 'TEXT_EMOJI', 'HEART', 'CONGRAT', 'DATE', 'TIME', 'FLOAT', 'NUMBER']
     for tag in tags:
         pattern = r'(?:\[' + re.escape(tag) + r'\]\s*)+'
         df['comment'] = df['comment'].apply(lambda x: re.sub(pattern, f'[{tag}]', x) if isinstance(x, str) else x)
@@ -295,6 +280,9 @@ def run_text_preprocessing(df: pd.DataFrame, emoji_path: str):
     return df
 
 def replace_regex_predict_data(df: pd.DataFrame):
+    pattern_spacer = '=!?@'
+    space_pattern = re.compile(r'[가-힣ㄱ-ㅎㅏ-ㅣa-zA-Z0-9:]+[\s!?@.,❤]*')
+    pattern = re.compile(rf"[{pattern_spacer}]*(\w)([{pattern_spacer}\s.,❤]+)(\w)")
     # prefix, subfix 제거
     df['nickname'] = df['nickname']\
         .str.strip()\
