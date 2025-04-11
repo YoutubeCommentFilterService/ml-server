@@ -7,3 +7,6 @@ env/**
 model
 
 *.log
+*/**.xlsx
+*/**.xls
+*/**.hwp
