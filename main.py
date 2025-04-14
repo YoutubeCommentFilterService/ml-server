@@ -2,22 +2,24 @@ from fastapi import FastAPI, HTTPException
 from typing import List, Tuple
 from dotenv import load_dotenv
 import pandas as pd
-import redis
-    
-import time
+import redis.asyncio as redis
 
-import re
 import os
-import traceback
-import unicodedata
+import time
+import hashlib
 
 import torch
 from helpers import TransformerClassificationModel, S3Helper
 from schemes.fastapi_types import PredictItem,  PredictResult, PredictRequest, PredictResponse, PredictClassResponse
-from schemes.config import REDIS_PUBSUB_TEGRA_KEY, REDIS_PUBSUB_TEGRA_MAX_VALUE, REDIS_PUBSUB_UPDATE_KEY, REDIS_REQUEST_TIME_KEY
-from helpers.text_preprocessing import run_text_preprocessing, replace_regex_predict_data
-
-do_not_download_list = ['dataset-backup']
+from schemes.config import (
+    REDIS_PUBSUB_TEGRA_KEY, 
+    REDIS_PUBSUB_TEGRA_MAX_VALUE, 
+    REDIS_REQUEST_TIME_KEY, 
+    REDIS_LAST_REQUEST_TIME_KEY,
+    REDIS_LAST_UPDATE_TIME_KEY,
+    REDIS_MODEL_VERSION_KEY
+)
+from helpers.text_preprocessing import run_text_preprocessing
 
 project_root_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -27,24 +29,26 @@ do_not_download_list = ['dataset-backup']
 google_client_key_path = os.path.join(project_root_dir, 'env', 'ml-server-key.json')
 
 redis_client = redis.Redis()
+DEFAULT_TTL_EX = 30
+DEFAULT_IDLE_TIME = 2
+
+pid = str(os.getpid())
+
+def get_file_version_hash():
+    stat = os.stat('./model/dataset.csv')
+    key = f"{stat.st_mtime}-{stat.st_size}".encode("utf-8")
+    return hashlib.md5(key).hexdigest()
+
+async def set_model_version():
+    file_version = get_file_version_hash()
+    await set_redis_key_value(REDIS_MODEL_VERSION_KEY, file_version)
+
+async def get_model_version():
+    return await redis_client.get(REDIS_MODEL_VERSION_KEY)
 
 helper = S3Helper(project_root_dir, 'youtube-comment-predict')
-if not os.path.exists('./model'):
-    helper.download()
-
-if torch.cuda.is_available():
-    fp = os.getenv('FP')
-    fp = fp if fp is not None else 'fp32'
-    comment_model = TransformerClassificationModel(model_type="comment", quantize=fp)
-    nickname_model = TransformerClassificationModel(model_type="nickname", quantize=fp)
-
-    do_not_download_list.extend(['comment_onnx', 'nickname_onnx'])
-
-    print("Transformer loaded")
-
-    model_type = 'transformer'
-else:
-    raise ValueError("CUDA not available")
+nickname_model, comment_model = None, None
+model_type = None
 
 app = FastAPI()
 
@@ -60,49 +64,100 @@ app = FastAPI()
 
 nickname_predict_class = None
 comment_predict_class = None
-power_mode = {"max": None, "min": None}
-is_idle = True
-
-import re
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-is_updating = False
-def subscribe_redis():
-    global is_updating
-    pubsub = redis_client.pubsub()
-    pubsub.subscribe(REDIS_PUBSUB_UPDATE_KEY)
+async def waiting_for_idle(redis_key: str):
+    redis_key = redis_key + pid
+    while True:
+        last_request_time = await redis_client.get(redis_key)
+        if last_request_time is None:
+            break
+        if time.time() - last_request_time > DEFAULT_IDLE_TIME:
+            break
+        await asyncio.sleep(1)
 
-    for message in pubsub.listen():
-        if message['channel'].decode('utf-8') == REDIS_PUBSUB_UPDATE_KEY and message['type'] == 'message':
-            while not is_idle:
-                time.sleep(1)
+async def update_last_update_time():
+    while True:
+        await set_redis_key_value(REDIS_LAST_UPDATE_TIME_KEY + pid, time.time(), ex=DEFAULT_TTL_EX)
+        await asyncio.sleep(1)
 
-            is_updating = True
+async def update_last_request_time():
+    while True:
+        cur_time = time.time()
+        await set_redis_key_value(REDIS_REQUEST_TIME_KEY, cur_time)
+        await set_redis_key_value(REDIS_LAST_REQUEST_TIME_KEY + pid, cur_time, DEFAULT_TTL_EX)
+        await asyncio.sleep(1)
+
+async def set_redis_key_value(key, value, ttl_ex=None):
+    if ttl_ex is not None:
+        await redis_client.set(key, value, ex=ttl_ex)
+    else:
+        await redis_client.set(key, value)
+
+async def check_model_updatable():
+    global model_version
+    while True:
+        next_model_version = await get_model_version()
+        if model_version != next_model_version:
+
+            await waiting_for_idle(REDIS_LAST_REQUEST_TIME_KEY)
+
+            task = asyncio.create_task(update_last_update_time())
             nickname_model.reload()
             comment_model.reload()
-            is_updating = False
+            read_predict_classes()
+        
+            task.cancel()
 
-            print('update finish!')
+            print(f'({pid:>6}) update finish!', flush=True)
+        model_version = next_model_version
+        await asyncio.sleep(1 * 60)
 
-import threading
-
-async def startup():
-    global nickname_predict_class, comment_predict_class, power_mode
+def read_predict_classes():
+    global nickname_predict_class, comment_predict_class
     classes = pd.read_csv('./model/dataset.csv', usecols=['nickname_class', 'comment_class'])
     nickname_predict_class = classes['nickname_class'].dropna().unique().tolist()
     comment_predict_class = classes['comment_class'].dropna().unique().tolist()
 
-    del classes
+update_redis_task = None
+async def startup():
+    global update_redis_task, model_version, model_type, nickname_model, comment_model
+
+    if not os.path.exists('./model'):
+        helper.download()
+    await set_model_version()
+
+    if torch.cuda.is_available():
+        fp = os.getenv('FP')
+        fp = fp if fp is not None else 'fp32'
+        comment_model = TransformerClassificationModel(model_type="comment", quantize=fp)
+        nickname_model = TransformerClassificationModel(model_type="nickname", quantize=fp)
+
+        do_not_download_list.extend(['comment_onnx', 'nickname_onnx'])
+
+        print(f"({pid:>6}) Transformer loaded")
+
+        model_type = 'transformer'
+    else:
+        raise ValueError("CUDA not available")
+
+    read_predict_classes()
+    model_version = await get_model_version()
 
     nickname_model.load()
     comment_model.load()
 
-    threading.Thread(target=subscribe_redis, daemon=True).start()
+    update_redis_task = asyncio.create_task(check_model_updatable())
 
 async def shutdown():
     nickname_model.unload()
     comment_model.unload()
+
+    if update_redis_task is not None:
+        update_redis_task.cancel()
+
+    await redis_client.close()
 
 app.add_event_handler("startup", startup)
 app.add_event_handler("shutdown", shutdown)
@@ -124,49 +179,32 @@ async def get_predict_category():
 
 @app.post("/predict")
 async def predict_batch(data: PredictRequest):
-    global is_idle, is_updating
+    # 업데이트중인 경우 대기 로직
+    await waiting_for_idle(REDIS_LAST_UPDATE_TIME_KEY)
 
-    async def keep_updating_redis():
-        while not is_idle:
-            redis_client.set(REDIS_REQUEST_TIME_KEY, time.time())
-            await asyncio.sleep(1)
+    print(f'({pid:>6}) predict request accepted... ', flush=True)
 
-    while is_updating:
-        await asyncio.sleep(1)
-    print('predict request accepted...')
-    is_idle = False
-
-    redis_client.publish(REDIS_PUBSUB_TEGRA_KEY, REDIS_PUBSUB_TEGRA_MAX_VALUE)
-    redis_update_task = asyncio.create_task(keep_updating_redis())
+    redis_update_task = asyncio.create_task(update_last_request_time())
+    await redis_client.publish(REDIS_PUBSUB_TEGRA_KEY, REDIS_PUBSUB_TEGRA_MAX_VALUE)
     
     try:
         items = data.items
         response_data = []
 
-        nickname_categories, comment_categories = nickname_predict_class, comment_predict_class
+        # nickname_categories, comment_categories = nickname_predict_class, comment_predict_class
 
         if len(items) > 0:
             df = pd.DataFrame([{'nickname': item.nickname, 'comment': item.comment} for item in items])
             run_text_preprocessing(df, './tokens/emojis.txt')
-            # replace_regex_predict_data(df)
 
             nicknames = df['nickname'].tolist()
             comments = df['comment'].tolist()
 
             start = time.time()
             (nickname_outputs, nickname_categories), (comment_outputs, comment_categories) = await predict_process(nicknames, comments)
-            print(f"predict len: {len(items)}, time: {time.time() - start}")
+            print(f"({pid:>6}) predict len: {len(items)}, time: {time.time() - start}", flush=True)
 
-            print(len(items), len(comment_outputs), len(nickname_outputs))
-
-            index = 0
             for item, comment_output, nickname_output in zip(items, comment_outputs, nickname_outputs):
-                if nickname_output is None:
-                    print(f'\tnickname{index} = {nickname_output}, {item}')
-                if comment_output is None:
-                    print(f'\tcomment{index} = {comment_output}, {item}')
-                index = index + 1
-                
                 response_data.append(PredictResult(nickname_predicted=nickname_output[0],
                                                    nickname_predicted_prob=nickname_output[1],
                                                    comment_predicted=comment_output[0],
@@ -175,18 +213,17 @@ async def predict_batch(data: PredictRequest):
         # 결과 반환
         return PredictResponse(items=response_data, model_type=model_type, nickname_categories=nickname_categories, comment_categories=comment_categories)
     except Exception as e:
-        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
-        is_idle = True
         redis_update_task.cancel()
     
 @app.patch("/update")
-def update_dataset():
-    print('update start!')
+async def update_dataset():
+    global model_version
+    print(f'({pid:>6}) update start!', flush=True)
     try:
         helper.download()
-        redis_client.publish(REDIS_PUBSUB_UPDATE_KEY, '')
+        await set_model_version()
         return 'update model succeed'
     except Exception as e:
         return {
