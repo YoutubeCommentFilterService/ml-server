@@ -136,7 +136,7 @@ async def startup():
 
         do_not_download_list.extend(['comment_onnx', 'nickname_onnx'])
 
-        print(f"({pid:>6}) Transformer loaded")
+        print(f"({pid:>6}) Transformer loaded", flush=True)
 
         model_type = 'transformer'
     else:
