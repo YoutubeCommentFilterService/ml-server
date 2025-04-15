@@ -1,6 +1,3 @@
-REDIS_PUBSUB_TEGRA_KEY = 'gpu:status'
-REDIS_PUBSUB_TEGRA_MAX_VALUE = 'max'
-REDIS_PUBSUB_TEGRA_MIN_VALUE = 'min'
 REDIS_REQUEST_TIME_KEY = 'server:request_time'
 REDIS_LAST_REQUEST_TIME_KEY = 'server:last_request:'
 REDIS_LAST_UPDATE_TIME_KEY = 'server:last_update:'

@@ -12,8 +12,6 @@ import torch
 from helpers import TransformerClassificationModel, S3Helper
 from schemes.fastapi_types import PredictItem,  PredictResult, PredictRequest, PredictResponse, PredictClassResponse
 from schemes.config import (
-    REDIS_PUBSUB_TEGRA_KEY, 
-    REDIS_PUBSUB_TEGRA_MAX_VALUE, 
     REDIS_REQUEST_TIME_KEY, 
     REDIS_LAST_REQUEST_TIME_KEY,
     REDIS_LAST_UPDATE_TIME_KEY,
@@ -79,14 +77,14 @@ async def waiting_for_idle(redis_key: str):
 
 async def update_last_update_time():
     while True:
-        await set_redis_key_value(REDIS_LAST_UPDATE_TIME_KEY + pid, time.time(), ex=DEFAULT_TTL_EX)
+        await set_redis_key_value(REDIS_LAST_UPDATE_TIME_KEY + pid, time.time(), ttl_ex=DEFAULT_TTL_EX)
         await asyncio.sleep(1)
 
 async def update_last_request_time():
     while True:
         cur_time = time.time()
-        await set_redis_key_value(REDIS_REQUEST_TIME_KEY, cur_time)
-        await set_redis_key_value(REDIS_LAST_REQUEST_TIME_KEY + pid, cur_time, DEFAULT_TTL_EX)
+        await set_redis_key_value(REDIS_REQUEST_TIME_KEY, cur_time, ttl_ex=DEFAULT_TTL_EX)
+        await set_redis_key_value(REDIS_LAST_REQUEST_TIME_KEY + pid, cur_time, ttl_ex=DEFAULT_TTL_EX)
         await asyncio.sleep(1)
 
 async def set_redis_key_value(key, value, ttl_ex=None):
@@ -181,11 +179,9 @@ async def get_predict_category():
 async def predict_batch(data: PredictRequest):
     # 업데이트중인 경우 대기 로직
     await waiting_for_idle(REDIS_LAST_UPDATE_TIME_KEY)
-
     print(f'({pid:>6}) predict request accepted... ', flush=True)
 
     redis_update_task = asyncio.create_task(update_last_request_time())
-    await redis_client.publish(REDIS_PUBSUB_TEGRA_KEY, REDIS_PUBSUB_TEGRA_MAX_VALUE)
     
     try:
         items = data.items
@@ -216,7 +212,13 @@ async def predict_batch(data: PredictRequest):
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         redis_update_task.cancel()
-    
+        try:
+            await redis_update_task
+        except Exception as e:
+            print(e, flush=True)
+        except asyncio.CancelledError as e:
+            print(e, flush=True)
+
 @app.patch("/update")
 async def update_dataset():
     global model_version

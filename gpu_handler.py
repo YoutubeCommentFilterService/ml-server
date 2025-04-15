@@ -1,50 +1,40 @@
-import threading
 import redis
 import time
 import subprocess
 import os
 import re
 import json
-from schemes.config import REDIS_PUBSUB_TEGRA_KEY, REDIS_PUBSUB_TEGRA_MAX_VALUE, REDIS_REQUEST_TIME_KEY
+from schemes.config import REDIS_REQUEST_TIME_KEY
 
 redis_client = redis.Redis()
-redis_pubsub = redis_client.pubsub()
+
 IDLE_THRESHOLD_SEC = 5
+is_jseton_idle = None
 
 power_mode = {"max": None, "min": None}
-is_on_tegra = os.path.exists('/etc/nvpmodel.conf')
-
-tegra_status_high = False
 
 def monitor_gpu_idle():
+    global is_jetson_idle
     while True:
-        time.sleep(IDLE_THRESHOLD_SEC)
         try:
-            last_request = float(redis_client.get(REDIS_REQUEST_TIME_KEY) or 0)
-            if time.time() - last_request > IDLE_THRESHOLD_SEC:
-                set_jetson_idle()
+            last_request_time = float(redis_client.get(REDIS_REQUEST_TIME_KEY) or 0)
+            is_over_threashold = time.time() - last_request_time > IDLE_THRESHOLD_SEC
+            if is_over_threashold and not is_jetson_idle:
+                set_jetson_nvp_model('min')
+                is_jetson_idle = True
+            elif not is_over_threashold and is_jetson_idle:
+                set_jetson_nvp_model('max')
+                is_jetson_idle = False
         except Exception as e:
-            print(f'Error in monitor: {e}')
+            print(f'Error in monitor: {e}', flush=True)
+        time.sleep(1)
 
-def set_jetson_high():
-    global tegra_status_high
-    if not is_on_tegra:
-        return
+def set_jetson_nvp_model(state: str):
     try:
-        subprocess.run(['sudo', 'nvpmodel', '-m', power_mode['max']])
-        tegra_status_high = True
+        subprocess.run(['sudo', 'nvpmodel', '-m', power_mode[state]])
+        print(f'switch to nvp model {state} succeed', flush = True)
     except Exception as e:
-        print(f"Error setting GPU to max : {e}")
-
-def set_jetson_idle():
-    global tegra_status_high
-    if not is_on_tegra:
-        return
-    try:
-        subprocess.run(['sudo', 'nvpmodel', '-m', power_mode['min']])
-        tegra_status_high = False
-    except Exception as e:
-        print(f"Error setting GPU to idle: {e}")
+        print(f"Error setting GPU to max : {e}", flush=True)
 
 def init_power_mode():
     global power_mode
@@ -61,22 +51,17 @@ def init_power_mode():
         
         power_mode["max"] = str(power_modes[module_info]["max"])
         power_mode["min"] = str(power_modes[module_info]["min"])
+
+        if is_jetson_idle:
+            set_jetson_nvp_model('min')
+        else:
+            set_jetson_nvp_model('max')
     except Exception as e:
         print(f"Error loading power modes: {e}")
 
-def subscribe_gpu_status():
-    redis_pubsub.subscribe(REDIS_PUBSUB_TEGRA_KEY)
-
-    for message in redis_pubsub.listen():
-        if message['type'] == 'message':
-            command = message['data'].decode('utf-8')
-            if command == REDIS_PUBSUB_TEGRA_MAX_VALUE and not tegra_status_high:
-                set_jetson_high()
-
 if __name__ == "__main__":
-    if is_on_tegra:
+    if os.path.exists('/etc/nvpmodel.conf'):
+        global is_jetson_idle
+        is_jetson_idle = time.time() - float(redis_client.get(REDIS_REQUEST_TIME_KEY) or 0)
         init_power_mode()
-        set_jetson_idle()
-        
-        threading.Thread(target=monitor_gpu_idle, daemon=True).start()
-        subscribe_gpu_status()
+        monitor_gpu_idle()
