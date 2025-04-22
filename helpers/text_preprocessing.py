@@ -5,53 +5,90 @@ import re
 
 def normalize_unicode_text(text: str) -> str:
     unicode_single_hangul_dict = {
-        'ᄀ': 'ㄱ', 'ᄂ': 'ㄴ', 'ᄃ': 'ㄷ', 'ᄅ': 'ㄹ', 'ᄆ': 'ㅁ', 'ᄇ': 'ㅂ', 
-        'ᄉ': 'ㅅ', 'ᄋ': 'ㅇ', 'ᄌ': 'ㅈ', 'ᄎ': 'ㅊ', 'ᄏ': 'ㅋ', 'ᄐ': 'ㅌ', 
-        'ᄑ': 'ㅍ', 'ᄒ': 'ㅎ', 'ᄍ': 'ㅉ', 'ᄄ': 'ㄸ', 'ᄁ': 'ㄲ', 'ᄊ': 'ㅆ', 
-        'ᅡ': 'ㅏ', 'ᅣ': 'ㅑ', 'ᅥ': 'ㅓ', 'ᅧ': 'ㅕ', 'ᅩ': 'ㅗ', 'ᅭ': 'ㅛ', 
-        'ᅮ': 'ㅜ', 'ᅲ': 'ㅠ', 'ᅳ': 'ㅡ', 'ᅵ': 'ㅣ', 'ᅢ': 'ㅐ', 'ᅦ': 'ㅔ', 
-        'ᅴ': 'ㅢ', 'ᆪ': 'ㄱㅅ', 'ᆬ': 'ㄴㅈ', 'ᆭ': 'ㄴㅎ', 'ᆲ': 'ㄹㅂ', 
-        'ᆰ': 'ㄹㄱ', 'ᆳ': 'ㄹㅅ', 'ᆱ': 'ㄹㅁ', 'ᄚ': 'ㄹㅎ', 'ᆴ': 'ㄹㅌ', 
-        'ᆵ': 'ㄹㅍ', 'ᄡ': 'ㅂㅅ', 'ᄈ': 'ㅂㅂ',
-        '𐨛': 'ㅋ', 'ヲ': 'ㅋ'
+        'ᄀ': 'ㄱ', 
+        'ᄂ': 'ㄴ', 
+        'ᄃ': 'ㄷ', 
+        'ᄅ': 'ㄹ', 
+        'ᄆ': 'ㅁ', 
+        'ᄇ': 'ㅂ', 
+        'ᄉ': 'ㅅ', 
+        'ᄋ': 'ㅇ', 
+        'ᄌ': 'ㅈ', 
+        'ᄎ': 'ㅊ',
+        'ᄏ': 'ㅋ', 
+        'ᄐ': 'ㅌ', 
+        'ᄑ': 'ㅍ', 
+        'ᄒ': 'ㅎ', 
+        'ᄍ': 'ㅉ', 
+        'ᄄ': 'ㄸ', 
+        'ᄁ': 'ㄲ', 
+        'ᄊ': 'ㅆ', 
+        'ᅡ': 'ㅏ', 
+        'ᅣ': 'ㅑ', 
+        'ᅥ': 'ㅓ', 
+        'ᅧ': 'ㅕ', 
+        'ᅩ': 'ㅗ', 
+        'ᅭ': 'ㅛ', 
+        'ᅮ': 'ㅜ', 
+        'ᅲ': 'ㅠ', 
+        'ᅳ': 'ㅡ', 
+        'ᅵ': 'ㅣ', 
+        'ᅢ': 'ㅐ', 
+        'ᅦ': 'ㅔ', 
+        'ᅴ': 'ㅢ', 
+        'ᆪ': 'ㄱㅅ', 
+        'ᆬ': 'ㄴㅈ', 
+        'ᆭ': 'ㄴㅎ', 
+        'ᆲ': 'ㄹㅂ', 
+        'ᆰ': 'ㄹㄱ', 
+        'ᆳ': 'ㄹㅅ', 
+        'ᆱ': 'ㄹㅁ', 
+        'ᄚ': 'ㄹㅎ', 
+        'ᆴ': 'ㄹㅌ', 
+        'ᆵ': 'ㄹㅍ', 
+        'ᄡ': 'ㅂㅅ', 
+        'ᄈ': 'ㅂㅂ',
+        '𐨛': 'ㅋ', 
+        'ヲ': 'ㅋ'
     }
     visual_map = {
-        'a': '[ᴀ𝗮𝘢𝙖𝓪αаＡａ𝖺𝓐]',
-        'b': '[ᵇ𝒷𝗯𝙗𝓫𝖇ʙＢｂ𝑏]',
-        'c': '[ⅽᴄϲⲥϲⲤ¢匚𐰽ᏟⅭℂⅽＣ∁ｃ𝖼𝑐𝒸𝓬ꞓ]',
-        'd': '[𝖽𝑑ⅾⅆｄ𝐝𝗱𝙙𝒅𝒟𝔡𝕕]',
-        'e': '[ｅ𝐞𝗲𝙚𝑒𝒆𝓮𝖾℮𝔢𝕖𝕰еε]',
-        'f': '[𝒇𝒻𝓯𝖿𝕗𝐟𝗳𝙛ｆ]',
-        'g': '[𝗀𝓰𝙜𝐠𝑔𝒈𝓰𝖌ｇ]',
-        'h': '[𝐡𝗵𝙝𝑯𝒉𝓱𝖍ｈ]',
-        'i': '[𝐢𝗶𝙞𝑖𝒊𝓲𝖎ｉ]',
-        'j': '[𝐣𝗷𝙟𝑗𝒋𝓳𝖏ｊ]',
-        'k': '[𝐤𝗸𝙠𝑘𝒌𝓴𝖐ｋ]',
-        'l': '[𝐥𝗹𝙡𝑙𝒍𝓵𝖑ⅼｌ]',
-        'm': '[ⅿ𝗺𝙢𝑚𝒎𝓶𝖒𝕞ｍⲘΜм]',
-        'n': '[𝗻𝙣𝑛𝒏𝓷𝖓ｎ𝗇𝐧]',
-        'o': '[οОＯ〇ｏ𝑜𝗈𝗼𝙤𝓞𝓸𝖔ⲟⓞⵔꝋ]',
-        'p': '[𝐩𝗽𝙥𝑝𝒑𝓹𝖕ｐ𝕡ρр]',
-        'q': '[𝐪𝗾𝙦𝑞𝒒𝓺𝖖ｑ]',
-        'r': '[𝐫𝗿𝙧𝑟𝒓𝓻𝖗ｒ𝕣ꞃ]',
-        's': '[𝐬𝗿𝙨𝑠𝒔𝓼𝖘ｓ𝕤ꜱ]',
-        't': '[𝐭𝗍𝙩𝑡𝒕𝓽𝖙ｔ𝕥ꞇ]',
-        'u': '[𝐮𝗎𝙪𝑢𝒖𝓾𝖚ｕ]',
-        'v': '[𝐯𝗏𝙫𝑣𝒗𝓿𝖛ｖ]',
-        'w': '[𝐰𝗐𝙬𝑤𝒘𝔀𝖜ｗ]',
-        'x': '[𝐱𝗑𝙭𝑥𝒙𝓍𝖝ｘ𝕩х×]',
-        'y': '[𝐲𝗒𝙮𝑦𝒚𝓎𝖞ｙ𝕪у]',
-        'z': '[𝐳𝗓𝙯𝑧𝒛𝔃𝖟ｚ𝕫ᴢ]',
+        'a': r'[ᴀ𝗮𝘢𝙖𝓪αаＡａ𝖺𝓐]',
+        'b': r'[ᵇ𝒷𝗯𝙗𝓫𝖇ʙＢｂ𝑏]',
+        'c': r'[ⅽᴄϲⲥϲⲤ¢匚𐰽ᏟⅭℂⅽＣ∁ｃ𝖼𝑐𝒸𝓬ꞓ₵]',
+        'd': r'[𝖽𝑑ⅾⅆｄ𝐝𝗱𝙙𝒅𝒟𝔡𝕕]',
+        'e': r'[ｅ𝐞𝗲𝙚𝑒𝒆𝓮𝖾℮𝔢𝕖𝕰еε]',
+        'f': r'[𝒇𝒻𝓯𝖿𝕗𝐟𝗳𝙛ｆ]',
+        'g': r'[𝗀𝓰𝙜𝐠𝑔𝒈𝓰𝖌ｇ]',
+        'h': r'[𝐡𝗵𝙝𝑯𝒉𝓱𝖍ｈ]',
+        'i': r'[𝐢𝗶𝙞𝑖𝒊𝓲𝖎ｉ]',
+        'j': r'[𝐣𝗷𝙟𝑗𝒋𝓳𝖏ｊ]',
+        'k': r'[𝐤𝗸𝙠𝑘𝒌𝓴𝖐ｋ]',
+        'l': r'[𝐥𝗹𝙡𝑙𝒍𝓵𝖑ⅼｌ]',
+        'm': r'[ⅿ𝗺𝙢𝑚𝒎𝓶𝖒𝕞ｍⲘΜмℳМ]',
+        'n': r'[𝗻𝙣𝑛𝒏𝓷𝖓ｎ𝗇𝐧]',
+        'o': r'[οОＯ〇ｏ𝑜𝗈𝗼𝙤𝓞𝓸𝖔ⲟⓞⵔꝋ]',
+        'p': r'[𝐩𝗽𝙥𝑝𝒑𝓹𝖕ｐ𝕡ρр]',
+        'q': r'[𝐪𝗾𝙦𝑞𝒒𝓺𝖖ｑ]',
+        'r': r'[𝐫𝗿𝙧𝑟𝒓𝓻𝖗ｒ𝕣ꞃ]',
+        's': r'[𝐬𝗿𝙨𝑠𝒔𝓼𝖘ｓ𝕤ꜱ]',
+        't': r'[𝐭𝗍𝙩𝑡𝒕𝓽𝖙ｔ𝕥ꞇ]',
+        'u': r'[𝐮𝗎𝙪𝑢𝒖𝓾𝖚ｕ]',
+        'v': r'[𝐯𝗏𝙫𝑣𝒗𝓿𝖛ｖ]',
+        'w': r'[𝐰𝗐𝙬𝑤𝒘𝔀𝖜ｗ]',
+        'x': r'[𝐱𝗑𝙭𝑥𝒙𝓍𝖝ｘ𝕩х×]',
+        'y': r'[𝐲𝗒𝙮𝑦𝒚𝓎𝖞ｙ𝕪у]',
+        'z': r'[𝐳𝗓𝙯𝑧𝒛𝔃𝖟ｚ𝕫ᴢ]',
     }
     
     normalized = unicodedata.normalize("NFKC", text)
     normalized = ''.join(ch for ch in normalized if not unicodedata.combining(ch))
+    normalized = ''.join(unicode_single_hangul_dict.get(ch, ch) for ch in normalized)
     for char, pattern in visual_map.items():
         normalized = re.sub(pattern, char, normalized)
-    normalized = re.sub(r'[cC][o0O][mM]', 'com', normalized)
+    normalized = re.sub(r'[cㄷ][o0ㅇ]m', 'com', normalized, flags=re.IGNORECASE)
     normalized = ''.join(ch for ch in normalized if not ('\u4E00' <= ch <= '\u9FFF'))
 
-    return ''.join(unicode_single_hangul_dict.get(ch, ch) for ch in normalized)
+    return normalized
 
 def normalize_korify(text: str):
     CHO = 'ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ'
@@ -176,7 +213,8 @@ def _replace_special_tokens(df: pd.DataFrame, emoji_path: str):
             # email 전처리
             .str.replace(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', '[EMAIL]', regex=True)
             # tag 전처리
-            .str.replace(r'@+[\w가-힣\.\-]+', '[TAG]', regex=True)
+            .str.replace(r'@+[가-힣\w.-]*\-[a-zA-Z0-9]+', '[TAG]', regex=True)
+            .str.replace(r'@+[가-힣\w.-]+', '[TAG]', regex=True)
             # 해시태그 전처리
             .str.replace(r'#[\w가-힣.ㄱ-ㅎㅏ-ㅣ-]+', '[HASH_TAG]', regex=True)
             # 카운트다운, IP 전처리
@@ -559,47 +597,21 @@ def replace_regex_predict_data(df: pd.DataFrame):
     return df
 
 if __name__ == "__main__":
-    # texts = [
-    #     '피식대학coｍ 한번 써봤는데 진짜 괜찮더라구요. 친구들한테도 추천했어요. 다들 후기 한 번 남겨봐요',
-    #     '한용이형처럼 그거맞음∁οm쓰면 먹걱정없지 꽁5 개꿀딱',
-    #     '그거맞음Ⲥⲟm 한번 써봤는데 진짜 괜찮더라구요. 친구들한테도 추천했어요. 다들 후기 한 번 남겨봐요',
-    #     '우일이형이 알려준 우일이형ℭꝋм 덕에 득템 완료',
-    #     '그거맞음ⅭⲟⲘ 덕분에 커피값 해결! 즉시5만 감사합니다',
-    #     '요즘 좀비트립∁οm 같은 사이트 많던데, 여기 진짜 주는 건가요? 괜히 시간 낭비될까봐 고민 중이에요',
-    #     '야 스포티비∁ⲟΜ 써봤냐? 나 오콩 받아서 치킨 시킴 ㅋㅋㅋ 레전드네',
-    #     '선욱이형이 추천해준 별놈들¢〇ℳ 진짜 물건이네 ㅋㅋ',
-    #     '규남이누나가 추천해준 그거맞음ℭ0Ⲙ 진짜 물건이네 ㅋㅋ',
-    #     '두친구CοⲘ 환해주는5콩고맙다 오픈축하해️',
-    #     '규선이형은 유병재∁οm만 쓴다하더라.. 5마눤즉급',
-    #     '상협이형 너덜트匚ⵔм 그만 알려줘 ㅠㅠ 나만알고싶다고... 진짜 이벤트ㄷㄷ하네',
-    #     '야 나도 인피쉰∁ⵔм 따라 해봤는데, 진짜 바로 오만원? 이거 실화냐? ㅋㅋㅋ',
-    #     '최승필 진짜 잘한다 두친구Ⅽ〇Ⲙ 잘쓸께  !!',
-    #     '우일이형 덕에 오늘 회식비 나왔다. 우일이형cⲟℳ 인정ㅋㅋㅋ',
-    #     '최홍철¢0Μ에서 5만즉시 받은 후기 봤는데 솔직히 반신반의했거든요. 그런데 진짜 주네요. 이런 거 또 있으면 공유 부탁드려요!',
-    #     '180초형들은 우일이형COM만 쓴다하더라.. 오만콩즉급',
-    #     '그거맞음CⵔΜ에서 5꽁 받은 후기 봤는데 솔직히 반신반의했거든요. 그런데 진짜 주네요. 이런 거 또 있으면 공유 부탁드려요!',
-    #     '보겸CⵔΜ? 이거 친구가 알려줬는데 무려오만원 바로 줬대... 나도 해봐야겠음 ㅋㅋㅋ',
-    #     'COM',
-    # ]
-
-    # for text in texts:
-    #     print(re.sub(r'', '', normalize_unicode_text(text)))
-
     with open('../tokens/emojis.txt', 'r', encoding='utf-8') as f:
         lines = [ line.strip() for line in f.readlines() ]
     df = pd.DataFrame(lines, columns=['comment'])
 
     _normalize_unicode(df)
-    for emoji in df['comment']:
-        print(emoji)
 
-    # df = pd.read_csv('../model/dataset.csv', encoding='utf-8')
-    # df['comment'] = df['comment'].map(lambda x: x.replace('\\', ',') if isinstance(x, str) else x)
-    # df['comment'] = df['comment'].str.strip()
+    df = pd.read_csv('./testset.csv', encoding='utf-8')
+    df['comment'] = df['comment'].map(lambda x: x.replace('\\', ',') if isinstance(x, str) else x)
+    df['comment'] = df['comment'].str.strip()
 
-    # updated_logic_df = df.copy()
+    updated_logic_df = df.copy()
 
-    # run_text_preprocessing(updated_logic_df, '../tokens/emojis.txt')
+    run_text_preprocessing(updated_logic_df, '../tokens/emojis.txt')
+
+    print(updated_logic_df)
 
     # df['comment'] = df['comment'].map(lambda x: x.replace(',', '\\') if isinstance(x, str) else x)
     # updated_logic_df['comment'] = updated_logic_df['comment'].map(lambda x: x.replace(',', '\\') if isinstance(x, str) else x)
