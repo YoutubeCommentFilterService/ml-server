@@ -45,8 +45,11 @@ class TransformerClassificationModel:
     def unload(self):
         try:
             if self.model:
+                del self.model
                 self.model=None
+                
             gc.collect()
+            torch.cuda.empty_cache()
         
         except Exception as e:
             print(f"Error unloading model: {str(e)}")
