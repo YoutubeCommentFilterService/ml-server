@@ -468,7 +468,7 @@ def _normalize_spam_nickname(df: pd.DataFrame):
             .str.replace(r'(?:채|체|챼|쳬)(?:널|녈|놀|뇰|눌|뉼)', '채널', regex=True)
             .str.replace(r'(?:챈|첸|첀|쳰)(?:얼|열|올|욜|울|율)', '채널', regex=True)
             .str.replace(r'(?:프|푸)(?:사|샤)', '프사', regex=True)
-            .str.replace(r'(?i)카g', '카지', regex=True)
+            .str.replace(r'(?i)(?:카|캬)(?:g|쥐)', '카지', regex=True)
             .str.replace(r'(?i)v[1l]p', 'VIP', regex=True)
             .str.replace(r'(?i)(?:온|on)(?:팬|fan)', '온팬', regex=True)
             .str.replace(r'(?:뮨|문|무|뮤)(?:의|늬|희)', '문의', regex=True)
@@ -476,13 +476,7 @@ def _normalize_spam_nickname(df: pd.DataFrame):
             .str.replace(r'(?:쿨|끌)(?:릭|맄)|클맄', '클릭', regex=True)
             .str.replace(r'(?:꾸|뀨)(?:욱|육)|뀩', '꾹', regex=True)
             .str.replace(r'(?:샤|ㅅF)고', '사고', regex=True)
-            .str.replace(r'갸입', '가입', regex=False)
-            .str.replace(r'뱡', '방', regex=False)
             .str.replace(r'쥬소', '주소', regex=False)
-            .str.replace(r'꾤', '꼴', regex=False)
-            .str.replace(r'졍', '정', regex=False)
-            .str.replace(r'냬', '내', regex=False)
-            .str.replace(r'뼌', '변', regex=False)
     )
     return df
 
@@ -506,7 +500,23 @@ def _set_default_nickname(df: pd.DataFrame):
     df['nickname'] = df['nickname'].apply(lambda x: _change(x) if isinstance(x, str) else x)
     return df
 
+def _preprocess_incorrect_char(df: pd.DataFrame):
+    def replacer(match):
+        return conversion_dict.get(match.group(0), match.group(0))
+    conversion_dict = {
+        '뵬': '볼', '냬': '내', '뇰': '놀', '녈': '널',
+        '젼': '전', '갸': '가', '뱡': '방', '꾤': '꼴',
+        '졍': '정', '텨': '터', '챼': '채', '뼌': '변',
+        '퍤': '팬', '퍠': '패', '뉼': '눌'
+    }
+    pattern = r'(' + '|'.join(map(re.escape, conversion_dict.keys())) + r')'
+    for column in df.columns:
+        df[column] = df[column].str.replace(pattern, replacer, regex=True)
+    
+    return df
+
 def run_text_preprocessing(df: pd.DataFrame, emoji_path: str):
+    df = _preprocess_incorrect_char(df)
     df = (
         _normalize_unicode(df)
             .pipe(_replace_special_tokens, emoji_path)
@@ -597,11 +607,11 @@ def replace_regex_predict_data(df: pd.DataFrame):
     return df
 
 if __name__ == "__main__":
-    with open('../tokens/emojis.txt', 'r', encoding='utf-8') as f:
-        lines = [ line.strip() for line in f.readlines() ]
-    df = pd.DataFrame(lines, columns=['comment'])
+    # with open('../tokens/emojis.txt', 'r', encoding='utf-8') as f:
+    #     lines = [ line.strip() for line in f.readlines() ]
+    # df = pd.DataFrame(lines, columns=['comment'])
 
-    _normalize_unicode(df)
+    # df = _normalize_unicode(df)
 
     df = pd.read_csv('./testset.csv', encoding='utf-8')
     df['comment'] = df['comment'].map(lambda x: x.replace('\\', ',') if isinstance(x, str) else x)
@@ -610,7 +620,6 @@ if __name__ == "__main__":
     updated_logic_df = df.copy()
 
     run_text_preprocessing(updated_logic_df, '../tokens/emojis.txt')
-
     print(updated_logic_df)
 
     # df['comment'] = df['comment'].map(lambda x: x.replace(',', '\\') if isinstance(x, str) else x)
