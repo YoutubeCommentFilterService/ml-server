@@ -8,11 +8,13 @@
 ├── config.json
 ├── env
 │   ├── .env                                    # 실행에 필요한 환경변수를 담아뒀습니다.
+│   ├── s3-bucket-key.json                      # 실행에 필요한 환경변수를 담아뒀습니다.
 │   └── ml-server-key.json                      # google drive에 접근하기 위한 서비스 계정입니다.
 ├── helpers
 │   ├── __init__.py                             # main.py에서 불러오기 편하도록 작성한 init입니다.
 │   ├── download_from_google_drive.py
 │   ├── onnx_classification_model.py
+│   ...
 │   └── transformer_classification_model.py
 ├── main.py
 └── model                                       # 학습한 모델들이 담기는 디렉터리입니다.
@@ -20,19 +22,13 @@
 
 ## 패키지 설치
 
-- x86_64 환경
+> 서버: fastapi, uvicorn[standard], gunicorn
 
-  > pip install -r requirements_x86-64.txt
+> 모델 다운로드: boto3(s3 bucket), google-api-python-client(google drive)
 
-- arm64 환경
+> 모델 로더: transformers
 
-  > pip install -r requirements_arm64.txt
-
-- 직접 설치
-  > 서버: fastapi, uvicorn[standard]
-  > 모델 다운로드: boto3, google-api-python-client, tqdm
-  > 모델 로더: transformers
-  > 메시지큐: redis
+> 메시지큐: redis
 
 ## tegra, 즉 jetson 시리즈에서 구동
 
