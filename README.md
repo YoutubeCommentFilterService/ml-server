@@ -28,6 +28,8 @@
 
 > 모델 로더: transformers
 
+> 텍스트 전처리: hangul-jamo
+
 > 메시지큐: redis
 
 ## tegra, 즉 jetson 시리즈에서 구동
