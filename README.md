@@ -26,7 +26,7 @@
 
 > 모델 다운로드: boto3(s3 bucket), google-api-python-client(google drive)
 
-> 모델 로더: transformers
+> 모델 로더: transformers, pandas, torch
 
 > 텍스트 전처리: hangul-jamo
 
