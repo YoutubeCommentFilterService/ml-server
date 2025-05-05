@@ -467,31 +467,73 @@ def _clean_nickname(df: pd.DataFrame):
     return df
 
 # 닉네임 정규화
-def _normalize_spam_text(df: pd.DataFrame):
+def _normalize_incorrect_grammar(df: pd.DataFrame):
+    patterns = [
+        (r'(?i)[1il]9', '19', True),
+        (r'(?i)[1il]9(?:x|금)', '19금', True),
+        (r'(?i)[o0]F([가-힣])', r'야\1', True),
+        (r'(?:야|얏|얃)(?:동|덩|둥)', '야동', True),
+        (r'얃(?:옹|용|엉|영|웅|융)', '야동', True),
+        (r'(?:채|체|챠)(?:널|놀|눌)', '채널', True),
+        (r'(?:챈|첸)(?:얼|열|올|욜|울|율)', '채널', True),
+        (r'(?:프|푸|퓨)(?:사|샤)', '프사', True),
+        (r'(?i)(?:카|캬)(?:g|쥐)', '카지', True),
+        (r'(?i)v[1l]p', 'VIP', True),
+        (r'(?i)(?:온|on)(?:팬|fan)', '온팬', True),
+        (r'(?:뮨|문|무|뮤)(?:의|늬|희)', '문의', True),
+        (r'(?:눌|눍)(?:러|려)', '눌러', False),
+        (r'(?:쿨|끌|클)(?:릭|맄)', '클릭', True),
+        (r'(?:꾸|뀨)(?:우|유)*(?:욱|육)|뀩', '꾹', True),
+        ('샤고', '사고', False),
+        (r'쥬(?:소|쇼)', '주소', True),
+        (r'(?:분|뷴)(?:수|슈)', '분수', True),
+        (r'(?i)(?:먹|멱)(?:t|틔|튀)', '먹튀', True),
+        ('뷴태', '변태', False),
+        (r'(?:챌|첼|쵤)(?:린|륀)(?:저|져|줘)', '챌린저', True),
+        ('뷋팅', '베팅', False),
+        ('눙물', '눈물', False),
+        ('이었', '였', False),
+        (r'(?:줠라|쥰내)', '졸라', True),
+        ('혼좌', '혼자', False),
+        ('윾시', '역시', False),
+        (r'(?:멤|멥)버(?:십|쉽)', '멤버십', True),
+        (r'(?:가|갸)(?:입|윕)', '가입', True),
+        (r'(?:놀|뇰)이(?:떵|뗭|텨)', '놀이터', True),
+        (r'노리(?:떵|뗭|텨)', '놀이터', True),
+        (r'검(?:샏|샠)', '검색', True),
+        ('홧팅', '화이팅', False),
+        ('읎다', '없다', False),
+        ('공겜', '공포겜', False),
+        ('종겜', '종합겜', False),
+        ('배뎃', '베댓', False),
+        ('렝커', '랭커', False),
+        ('젛다', '좋다', False),
+        ('(?:뫈원|마눤)', '만원', True),
+        ('컨샙', '컨셉', False),
+        ('렝크', '랭크', False),
+        ('다야', '다이아', False),
+        ('읎이', '없이', False),
+        ('(?:멜|맬)론', '메론', False),
+        ('땨문', '때문', False),
+        ('뎃글', '댓글', False),
+        ('혜땍', '혜택', False),
+        ('엤날', '옜날', False),
+        ('팹시', '펩시', False),
+        ('어쨋', '어쨌', False),
+        ('어딧', '어딨', False),
+        ('(?:쎔네일|썸넬)', '썸네일', True),
+        ('(?:쌔|쎄|씨)게', '세게', True),
+        ('탕슉', '탕수육', False),
+        ('(?:꼰쥬|꽁쥬|곤듀|공듀|겅듀|꼰듀)', '공주', True),
+        ('쨋든', '쨌든', False),
+        ('엄뫄', '엄마', False),
+        ('횽님', '형님', False),
+        ('언넝', '얼른', False),
+        ('천잰가', '천재인가', False),
+    ]
     for column in df.columns:
-        df[column] = (
-            df[column]
-                .str.replace(r'(?i)[1il]9', '19', regex=True)
-                .str.replace(r'(?i)[1il]9(?:x|금)', '19금', regex=True)
-                .str.replace(r'(?i)[o0]F([가-힣])', r'야\1', regex=True)
-                .str.replace(r'(?:야|얏|얃)(?:동|덩|둥)', '야동', regex=True)
-                .str.replace(r'얃(?:옹|용|엉|영|웅|융)', '야동', regex=True)
-                .str.replace(r'(?:채|체|챠)(?:널|놀|눌)', '채널', regex=True)
-                .str.replace(r'(?:챈|첸)(?:얼|열|올|욜|울|율)', '채널', regex=True)
-                .str.replace(r'(?:프|푸|퓨)(?:사|샤)', '프사', regex=True)
-                .str.replace(r'(?i)(?:카|캬)(?:g|쥐)', '카지', regex=True)
-                .str.replace(r'(?i)v[1l]p', 'VIP', regex=True)
-                .str.replace(r'(?i)(?:온|on)(?:팬|fan)', '온팬', regex=True)
-                .str.replace(r'(?:뮨|문|무|뮤)(?:의|늬|희)', '문의', regex=True)
-                .str.replace(r'눌려', '눌러', regex=False)
-                .str.replace(r'(?:쿨|끌|클)(?:릭|맄)', '클릭', regex=True)
-                .str.replace(r'(?:꾸|뀨)(?:우|유)*(?:욱|육)|뀩', '꾹', regex=True)
-                .str.replace(r'샤고', '사고', regex=False)
-                .str.replace(r'쥬(?:소|쇼)', '주소', regex=True)
-                .str.replace(r'(?:분|뷴)(?:수|슈)', '분수', regex=True)
-                .str.replace(r'(?i)(?:먹|멱)(?:t|틔|튀)', '먹튀', regex=True)
-                .str.replace('뷴태', '변태', regex=False)
-        )
+        for pattern, to_sub, regex_flag in patterns:
+            df[column] = df[column].str.replace(pattern, to_sub, regex=regex_flag)
     return df
 
 def _remove_isolated_english(df: pd.DataFrame):
@@ -525,7 +567,15 @@ def _preprocess_incorrect_char(df: pd.DataFrame):
         '즁': '중', 'ㅅF': '샤', '뉼': '눌', '쳬': '체',
         '둉': '동', '듕': '둥', '뎡': '덩', '첀': '챈',
         '쳰': '첸', 'ㅇF': '야', '껀': '건', '우ㅟ': '위', 'ㅘ': '와',
-        '햔': '한', '셱': '섹'
+        '햔': '한', '셱': '섹', 'ㅔ': '에', 'ㅏ': '아', 'ㅐ': '애', 'ㅖ': '예',
+        '볎': '볍', '봣': '봤', '땨': '따', '귱': '궁', '갹': '각', '꾳': '꽃',
+        '됫': '됐', '됬': '됐', '됏': '됐', '줫': '줬', '썻': '썼', '됀': '된', 
+        '댜': '다', '섕': '생', '쳣': '쳤', '뫈': '만', '뱎': '밖', '뱍': '박',
+        '뜽': '등', '떄': '때', '뮛': '뭣', '눼': '네', '됌': '됨', '곘': '겠',
+        '꼐': '께', '쩠': '쪘', '늼': '님', '꿧': '꿨', '갰': '겠', '핧': '햝',
+        '좨': '죄', '칀': '친', '틩': '팅', '눨': '널', '녜': '네', '쟈': '자',
+        '맟': '맞', '죰': '좀', '핥': '햝', '댜': '다', '쑈': '쇼', '돠': '다',
+        '싀': '시', '젆': '전', '쬭': '쪽', '몆': '몇'
     }
     pattern = r'(' + '|'.join(map(re.escape, conversion_dict.keys())) + r')'
     for column in df.columns:
@@ -538,7 +588,7 @@ def run_text_preprocessing(df: pd.DataFrame, emoji_path: str):
         print(cnt)
         return df
     df = _preprocess_incorrect_char(df)
-    df = _normalize_spam_text(df)
+    df = _normalize_incorrect_grammar(df)
     df = (
         _normalize_unicode(df)
             .pipe(_replace_special_tokens, emoji_path)
