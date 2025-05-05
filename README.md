@@ -32,6 +32,12 @@
 
 > 메시지큐: redis
 
+## 실행
+
+```bash
+gunicorn main:app -c gunicorn.conf.py
+```
+
 ## tegra, 즉 jetson 시리즈에서 구동
 
 아래의 내용을 추가해야 sudo를 입력하지 않아도 설정을 바꿀 수 있습니다!
