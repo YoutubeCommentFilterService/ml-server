@@ -122,10 +122,6 @@ update_redis_task = None
 async def startup():
     global update_redis_task, model_version, model_type, nickname_model, comment_model
 
-    if not os.path.exists('./model'):
-        helper.download()
-    await set_model_version()
-
     if torch.cuda.is_available():
         fp = os.getenv('FP')
         fp = fp if fp is not None else 'fp32'
@@ -171,8 +167,10 @@ async def predict_process(nicknames: List[str], comments: List[str]) -> Tuple[Pr
 
 @app.get("/predict-category")
 async def get_predict_category():
-    response = PredictClassResponse(nickname_predict_class=nickname_predict_class, 
-                                    comment_predict_class=comment_predict_class)
+    response = PredictClassResponse(
+        nickname_predict_class=nickname_predict_class,
+        comment_predict_class=comment_predict_class
+    )
     return response
 
 @app.post("/predict")
@@ -200,11 +198,15 @@ async def predict_batch(data: PredictRequest):
             (nickname_outputs, nickname_categories), (comment_outputs, comment_categories) = await predict_process(nicknames, comments)
             print(f"({pid:>6}) predict len: {len(items)}, time: {time.time() - start}", flush=True)
 
-            for item, comment_output, nickname_output in zip(items, comment_outputs, nickname_outputs):
-                response_data.append(PredictResult(nickname_predicted=nickname_output[0],
-                                                   nickname_predicted_prob=nickname_output[1],
-                                                   comment_predicted=comment_output[0],
-                                                   comment_predicted_prob=comment_output[1]))
+            for comment_output, nickname_output in zip(comment_outputs, nickname_outputs):
+                response_data.append(
+                    PredictResult(
+                        nickname_predicted=nickname_output[0],
+                        nickname_predicted_prob=nickname_output[1],
+                        comment_predicted=comment_output[0],
+                        comment_predicted_prob=comment_output[1]
+                    )
+                )
         
         # 결과 반환
         return PredictResponse(items=response_data, model_type=model_type, nickname_categories=nickname_categories, comment_categories=comment_categories)
