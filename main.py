@@ -17,7 +17,7 @@ from schemes.config import (
     REDIS_LAST_UPDATE_TIME_KEY,
     REDIS_MODEL_VERSION_KEY
 )
-from helpers.text_preprocessing import run_text_preprocessing
+from helpers.text_preprocessing import TextNormalizator
 
 project_root_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -45,7 +45,7 @@ async def get_model_version():
     return await redis_client.get(REDIS_MODEL_VERSION_KEY)
 
 helper = S3Helper(project_root_dir, 'youtube-comment-predict')
-nickname_model, comment_model = None, None
+nickname_model, comment_model, text_normalizator = None, None, None
 model_type = None
 
 app = FastAPI()
@@ -104,6 +104,7 @@ async def check_model_updatable():
             task = asyncio.create_task(update_last_update_time())
             nickname_model.reload()
             comment_model.reload()
+            text_normalizator.reload()
             read_predict_classes()
         
             task.cancel()
@@ -120,7 +121,7 @@ def read_predict_classes():
 
 update_redis_task = None
 async def startup():
-    global update_redis_task, model_version, model_type, nickname_model, comment_model
+    global update_redis_task, model_version, model_type, nickname_model, comment_model, text_normalizator
 
     if torch.cuda.is_available():
         fp = os.getenv('FP')
@@ -141,6 +142,7 @@ async def startup():
 
     nickname_model.load()
     comment_model.load()
+    text_normalizator = TextNormalizator(normalize_file_path='./tokens/text_preprocessing.json', emoji_path='./tokens/emojis.txt', tokenizer_path='./model/tokenizer')
 
     update_redis_task = asyncio.create_task(check_model_updatable())
 
@@ -189,7 +191,7 @@ async def predict_batch(data: PredictRequest):
 
         if len(items) > 0:
             df = pd.DataFrame([{'nickname': item.nickname, 'comment': item.comment} for item in items])
-            run_text_preprocessing(df, './tokens/emojis.txt')
+            text_normalizator.run_text_preprocessing(df)
 
             nicknames = df['nickname'].tolist()
             comments = df['comment'].tolist()
