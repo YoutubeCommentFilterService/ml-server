@@ -43,7 +43,7 @@ class TextNormalizator:
             'tokenizer': tokenizer_path
         }
 
-        self.reload_normalizer()
+        self.reload()
 
     def run_text_preprocessing(self, df: pd.DataFrame):
         def trace_error(df: pd.DataFrame, cnt: int):
@@ -72,7 +72,7 @@ class TextNormalizator:
         )
         return df
 
-    def reload_normalizer(self):
+    def reload(self):
         with open(self.path['normalize'], 'r', encoding='utf-8') as f:
             self.normalize_type: TextPreprocessingType = json.load(f)
 
