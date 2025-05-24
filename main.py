@@ -187,8 +187,6 @@ async def predict_batch(data: PredictRequest):
         items = data.items
         response_data = []
 
-        # nickname_categories, comment_categories = nickname_predict_class, comment_predict_class
-
         if len(items) > 0:
             df = pd.DataFrame([{'nickname': item.nickname, 'comment': item.comment} for item in items])
             text_normalizator.run_text_preprocessing(df)
@@ -197,7 +195,10 @@ async def predict_batch(data: PredictRequest):
             comments = df['comment'].tolist()
 
             start = time.time()
-            (nickname_outputs, nickname_categories), (comment_outputs, comment_categories) = await predict_process(nicknames, comments)
+            (nickname_outputs, nickname_categories) = nickname_model.predict(nicknames)
+            (comment_outputs, comment_categories) = comment_model.predict(comments)
+
+            # (nickname_outputs, nickname_categories), (comment_outputs, comment_categories) = await predict_process(nicknames, comments)
             print(f"({pid:>6}) predict len: {len(items)}, time: {time.time() - start}", flush=True)
 
             for comment_output, nickname_output in zip(comment_outputs, nickname_outputs):
