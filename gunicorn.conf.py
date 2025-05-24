@@ -6,8 +6,9 @@ from redis import Redis
 from schemes.config import REDIS_MODEL_VERSION_KEY
 
 bind="0.0.0.0:5000"
-workers=5
+workers=3
 worker_class="uvicorn.workers.UvicornWorker"
+timeout=120
 
 def when_ready(server):
     project_root_dir = os.path.dirname(os.path.abspath(__file__))
