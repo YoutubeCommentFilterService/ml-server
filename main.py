@@ -230,6 +230,7 @@ async def update_dataset():
     print(f'({pid:>6}) update start!', flush=True)
     try:
         helper.download()
+        print(f'({pid:>6}) download model finished!', flush=True)
         await set_model_version()
         return 'update model succeed'
     except Exception as e:
