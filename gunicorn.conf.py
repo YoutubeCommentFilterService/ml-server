@@ -6,7 +6,7 @@ from redis import Redis
 from schemes.config import REDIS_MODEL_VERSION_KEY
 import re
 from pathlib import Path
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
+from transformers import AutoTokenizer, AutoConfig
 
 bind="0.0.0.0:5000"
 workers=3
@@ -34,12 +34,12 @@ def is_dir_nonempty(path: str) -> bool:
 def is_vocab_correct() -> dict[str, bool]:
     tokenizer = AutoTokenizer.from_pretrained('model/tokenizer')
     model_subfix = '_fp16' if fp == 'fp16' else ''
-    nickname = AutoModelForSequenceClassification.from_pretrained('model/nickname_model' + model_subfix)
-    comment = AutoModelForSequenceClassification.from_pretrained('model/comment_model' + model_subfix)
+    nickname = AutoConfig.from_pretrained('model/nickname_model' + model_subfix)
+    comment = AutoConfig.from_pretrained('model/comment_model' + model_subfix)
 
     return {
-        'nickname_model' + model_subfix: len(tokenizer) == nickname.config.vocab_size,
-        'comment_model' + model_subfix : len(tokenizer) == comment.config.vocab_size
+        'nickname_model' + model_subfix: len(tokenizer) == nickname.vocab_size,
+        'comment_model' + model_subfix : len(tokenizer) == comment.vocab_size
     }
 
 def when_ready(server):
