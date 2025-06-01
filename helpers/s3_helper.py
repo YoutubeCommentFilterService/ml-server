@@ -85,4 +85,4 @@ class S3Helper:
 
     def _get_file_metadata(self, root_folder_name=''):
         response = self.s3_client.list_objects_v2(Bucket=self.bucket_name, Prefix=root_folder_name)
-        return [file['Key'] for file in response.get('Contents', [])]
+        return [file.get('Key', '') for file in response.get('Contents', [])]
