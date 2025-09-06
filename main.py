@@ -98,8 +98,8 @@ async def check_model_updatable():
     while True:
         next_model_version = await get_model_version()
         if model_version != next_model_version:
-
             await waiting_for_idle(REDIS_LAST_REQUEST_TIME_KEY)
+            print(f'({pid:>6}) update started!', flush=True)
 
             task = asyncio.create_task(update_last_update_time())
             nickname_model.reload()
@@ -109,7 +109,7 @@ async def check_model_updatable():
         
             task.cancel()
 
-            print(f'({pid:>6}) update finish!', flush=True)
+            print(f'({pid:>6}) update finish! ', flush=True)
         model_version = next_model_version
         await asyncio.sleep(1 * 60)
 
