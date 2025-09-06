@@ -3,15 +3,17 @@ import json
 from typing import List
 import boto3
 from boto3.s3.transfer import TransferConfig
+import os
 import concurrent
+from dotenv import load_dotenv
 from pathlib import Path
 
 class S3Helper:
-    def __init__(self, root_path: str, bucket_name: str, region_name: str='ap-northeast-2', save_s3_file_root_path:str='model'):
+    def __init__(self, root_path: str, bucket_name: str, region_name: str='ap-northeast-2', local_root_path:str='model'):
         self.root_path=root_path
         self.bucket_name=bucket_name
         self.region_name=region_name
-        self.save_s3_file_root_path=save_s3_file_root_path
+        self.save_s3_file_root_path=local_root_path
 
         with open(root_path + '/env/s3-bucket-key.json', 'r', encoding='utf-8-sig') as f:
             keys = json.load(f)
@@ -29,11 +31,21 @@ class S3Helper:
                                                max_concurrency=10,
                                                use_threads=True)
 
-    def upload(self, local_fpaths: List[str] = [], s3_fpaths: List[str] = [], from_local: bool=False):
-        if from_local:
-            local_fpaths = [str(file) for file in Path('model').rglob('*') if file.is_file() and file.name != 'dataset.csv']
-            s3_fpaths = [fpath[len(self.save_s3_file_root_path)+1:] for fpath in local_fpaths]
-            
+    def upload(self, local_fpaths: List[str] = []):
+        if len(local_fpaths) == 0:
+            local_fpaths.extend(str(file) for file in Path('model').rglob('*') if file.is_file() and file.name != 'dataset.csv')
+        else:
+            temp = []
+            local_fpaths = [ path.replace('/home/sh/youtube-comment-colab/', '') for path in local_fpaths ]
+            for path in local_fpaths:
+                if Path(path).is_file():
+                    temp.append(path)
+                else:
+                    temp.extend(str(file) for file in Path(path).rglob('*') if file.is_file() and file.name != 'dataset.csv')
+            local_fpaths = temp
+        
+        s3_fpaths = [fpath[len(self.save_s3_file_root_path)+1:] for fpath in local_fpaths]
+
         with concurrent.futures.ThreadPoolExecutor() as executor:
             futures = [
                 executor.submit(self._upload_file, local_fpath, s3_fpath) 
@@ -85,4 +97,4 @@ class S3Helper:
 
     def _get_file_metadata(self, root_folder_name=''):
         response = self.s3_client.list_objects_v2(Bucket=self.bucket_name, Prefix=root_folder_name)
-        return [file.get('Key', '') for file in response.get('Contents', [])]
+        return [file['Key'] for file in response.get('Contents', [])]
